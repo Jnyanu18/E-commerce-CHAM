@@ -30,3 +30,20 @@
 8. **Schema gaps to confirm.** No insert policy on `orgs`/`org_members` (pilots onboarded via service role; fine for MVP). No settlements table although the ledger scope mentions settlements/reconciliation, so a schema change request is likely. `city_tiers` is empty and needs seeding.
 9. **`web/` is a placeholder** (only `.gitkeep`); frontend agent must scaffold Next.js. `engine/.gitkeep` is redundant.
 10. **Product name unset.** CRLF warnings are addressed by `.gitattributes`.
+
+## Metrics agent (agent/metrics, 2026-10-14)
+### Done
+- `engine/metrics/`: `net_revenue`, `contribution_margin`, `expected_rto_loss`, `blended_cac`, `mer`, `platform_roas`, `contribution_after_marketing` as pure functions `metric(org_id, date_range, filters, group_by, *, repo) -> MetricResult` (contract section 3, `to_dict()` is JSON-safe).
+- Repository Protocol (`repository.py`) with `InMemoryRepository` (tests) and `PostgresRepository` (plain SELECTs, no formulas in SQL; maps legacy `tier1..3` to `tier_1..3`).
+- Registry `metrics.METRICS: dict[str, MetricSpec]` (+ `run_metric`) so API and AI tools wrap the same callables; `MetricError` (ValueError) for bad filters/group_by (map to HTTP 400).
+- Group-bys: channel, sku, category, city, city_tier, pincode, payment_method, week (Monday-start IST). Period helpers: `week_start`, `fy_range`, `fy_range_for`, `fy_label`.
+- 59 tests with hand-calculated fixtures, all passing.
+### In Progress
+- None.
+### Blocked
+- `PostgresRepository` not exercised against a live Postgres (no Docker); only a stubbed-cursor test.
+### Integration Needed
+- Main: construct a repository per request (`PostgresRepository(conn)`) and call `METRICS[name].callable(..., repo=repo)`; map `MetricError` to 400. Ratio values are `Decimal` in the dataclass and floats (4 dp) in `to_dict()`.
+- Ledger: must populate `orders.status` ('rto' for undelivered returns-to-origin), `refunds_paise`, `customer_key`, `city_tier`, `fees.source`; metrics treat `rto` orders as unrealised (no revenue/COGS), see DECISIONS.
+- Database: `orders.city_tier` check constraint still uses `tier1..tier3` (contract wants `tier_1..` + `unknown`).
+- Ad spend has no channel/SKU/city attribution, so `mer`, `blended_cac`, `contribution_after_marketing` support only `group_by=week` (platform_roas also `platform`). Proposed, not a contract change.
