@@ -11,7 +11,7 @@ _None yet._
 - Heads-up (affects other owners, not a request to the database agent): `engine/seed/synthetic.py` uses `tier1..tier3` and must move to `tier_1..tier_3`; `engine/worker` should call `reap_stale_jobs()` periodically. Details in PROGRESS.md > Integration Needed.
 ## 2026-10-14 / Ledger agent
 
-### 1. `settlements` table (REQUIRED for settlement persistence and reconciliation) / Status: open
+### 1. `settlements` table (REQUIRED for settlement persistence and reconciliation) / Status: SUPERSEDED - database agent built `settlements` + `settlement_items` + `shipments` (migration 0007) with a different shape; ledger must adapt (main follow-up, 2026-10-14)
 The ledger codes against this assumed interface (`ledger.pg_repository.PsycopgRepository.upsert_settlement`); the database agent owns the final design. Adjust names freely, but tell the ledger agent.
 ```
 settlements(
@@ -29,7 +29,7 @@ settlements(
 ```
 RLS like other pipeline tables (service-role writes, org members read). Index `(org_id, order_id)`.
 
-### 2. `orders.city_tier` enum (already planned by main, docs/CONTRACTS.md section 8) / Status: waiting on database agent
+### 2. `orders.city_tier` enum (already planned by main, docs/CONTRACTS.md section 8) / Status: DONE (migration 0005)
 Ledger now writes `metro | tier_1 | tier_2 | tier_3 | unknown`; the 0002 check constraint (`tier1..tier3`, no `unknown`) rejects these until the new migration lands. `city_tiers.tier` needs the same change; ledger normalises legacy `tier1..3` read from it.
 
 ### 3. Link from canonical rows to raw record (NICE TO HAVE) / Status: open
