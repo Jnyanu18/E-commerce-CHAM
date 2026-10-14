@@ -1,0 +1,14 @@
+services:
+  db:
+    image: postgres:16
+    environment: { POSTGRES_PASSWORD: postgres }
+    ports: ["54322:5432"]
+    volumes:
+      - ./supabase/local_stub.sql:/docker-entrypoint-initdb.d/00_stub.sql:ro
+      - ./supabase/migrations:/docker-entrypoint-initdb.d/migrations:ro
+  engine:
+    build: ./engine
+    env_file: .env
+    environment: { DATABASE_URL: postgresql://postgres:postgres@db:5432/postgres }
+    depends_on: [db]
+    ports: ["8000:8000"]
