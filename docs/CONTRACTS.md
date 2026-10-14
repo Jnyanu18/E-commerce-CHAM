@@ -16,13 +16,14 @@ Ledger transforms are pure and re-runnable from `raw_records`. They upsert `orde
 Metrics read only ledger tables. Every metric function signature:
 `metric(org_id, date_range, filters, group_by) -> MetricResult`
 ```json
-{"metric": "contribution_margin", "value_paise": 720000, "currency": "INR",
- "date_range": {"start": "2026-09-01", "end": "2026-09-30"},
- "group_by": "channel", "groups": [{"key": "shopify", "value_paise": 500000}],
+{"metric": "contribution_margin", "value": 720000, "unit": "paise", "currency": "INR",
+ "period": {"start": "2026-09-01", "end": "2026-09-30"},
+ "filters": {"channel": ["shopify"]}, "group_by": "channel",
+ "groups": [{"key": "shopify", "value": 500000}],
  "definition": "net_revenue - COGS - fees - shipping - RTO/return cost",
- "caveats": ["cogs_missing_for_skus: [...]"]}
+ "data_quality": {"status": "ok | degraded | insufficient", "issues": ["cogs_missing_for_skus: [...]"], "row_count": 1234}}
 ```
-Dates are IST calendar dates (`orders.ordered_date_ist`). Missing inputs (e.g. no COGS) appear in `caveats`, never silently zero.
+`value` is integer paise for money metrics; ratio metrics (MER, ROAS) use `unit: "ratio"` and a decimal value; counts use `unit: "count"`. `period` dates are IST calendar dates (`orders.ordered_date_ist`). Missing inputs (e.g. no COGS) appear in `data_quality.issues`, never silently zero; undefined results (division by zero, insufficient RTO history) return `value: null` with `status: "insufficient"`. (Supersedes the earlier draft shape `value_paise` / `date_range` / `caveats`.)
 
 ## 4. Metric Layer -> API
 FastAPI endpoints return `MetricResult` unchanged: `GET /metrics/{metric}?org_id&start&end&group_by&filters`. The frontend renders these and does no business math. Auth: Supabase JWT, org membership checked server-side.
@@ -39,3 +40,12 @@ or a result with `expected_impact_paise`, `ci_low_paise`, `ci_high_paise` (80% i
 
 ## 7. Recommendation -> AI Brief
 The AI agent reads `recommendations`, `experiments` and `model_runs.diagnostics` through tools. Every number in `insights.brief_markdown` must carry a citation `[call_id]` that resolves to a stored tool result; uncited numbers fail validation. Missing data is stated; intervals are quoted only from stored results.
+
+## 8. Shared conventions (set by main, 2026-10-14)
+- **City tier enum** (canonical, everywhere): `metro | tier_1 | tier_2 | tier_3 | unknown`. The initial migration used `tier1..tier3` without `unknown`; the database agent changes it in a new migration (`orders.city_tier`, `city_tiers.tier`), and ledger/metrics code uses the new values.
+- **Pincode** is `text` (6 digits, leading zeros possible), nullable.
+- **Money** is `bigint` paise end to end. Ratios are never stored as money.
+- **Natural keys** for idempotency: `(org_id, source, external_id)` for raw records, `(org_id, channel, external_id)` for orders.
+- **Responsibility split for CSV:** connectors parse/validate an upload and write `raw_records` (`csv_<marketplace>`); ledger normalises those rows into the canonical ledger.
+- **Settlements:** the database agent owns the table design; ledger consumes it. Until it merges, ledger works against a documented interface.
+- **Data-quality surface:** metrics report per-query `data_quality`; system-level checks (duplicates, missing COGS, unreconciled settlements, stale integrations) are assembled by main and exposed to the API and the AI `get_data_quality` tool.
