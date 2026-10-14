@@ -57,3 +57,16 @@ Not verified / gaps found: Supabase-specific behaviour (real `auth.uid()` from J
 - Ledger: must populate `orders.status` ('rto' for undelivered returns-to-origin), `refunds_paise`, `customer_key`, `city_tier`, `fees.source`; metrics treat `rto` orders as unrealised (no revenue/COGS), see DECISIONS.
 - Database: `orders.city_tier` check constraint still uses `tier1..tier3` (contract wants `tier_1..` + `unknown`).
 - Ad spend has no channel/SKU/city attribution, so `mer`, `blended_cac`, `contribution_after_marketing` support only `group_by=week` (platform_roas also `platform`). Proposed, not a contract change.
+
+## Database agent (2026-10-14)
+### Done
+- Migrations 0005-0011 (city tier enum, pincode CHECK, settlements/settlement_items/shipments + reconciliation view, indexes, queue hardening with reaper, city tier seed + `lookup_city_tier()`, privilege hardening). 0001-0004 untouched.
+- `supabase/tests/`: `pre.sql` (Supabase default-privilege emulation + `service_role`), `helpers.sql`, tests 01-07, `run.sh` (recreates `db_agent`, applies stub + pre + all migrations, runs tests; 8-session `claim_job` concurrency test).
+- Executed on PostgreSQL 18.1 (localhost:54399): `bash supabase/tests/run.sh` -> all 7 test groups PASS. Also executed: upgrade path (0001-0004 with pre-existing `tier2`/NULL rows, then 0005-0011) migrates values correctly.
+### Not verified (real Supabase)
+JWT -> `auth.uid()` via PostgREST, `service_role` as shipped by Supabase (emulated here), PostgREST rpc exposure of functions, Supabase PG version (`ON DELETE SET NULL (col)` and `security_invoker` views need PG15+).
+### Integration Needed
+- **main (`engine/worker`)**: call `select reap_stale_jobs()` periodically (e.g. each poll loop or every few minutes); `queue.py` needs no change for `claim_job`. Still open from earlier review: `run_one` mutates `conn.row_factory`.
+- **main (`engine/seed/synthetic.py`)**: emits `tier1/tier2/tier3` in `CITIES`/`RTO_BASE`; must emit `tier_1/tier_2/tier_3` (DB now rejects the old values). Seed also leaves `pincode` null (allowed) .
+- **ledger**: upsert targets `settlements (org_id, channel, external_id)`, `settlement_items (settlement_id, order_external_id, line_type)`, `shipments (org_id, source, external_id)`; set `order_id` when the order is known (composite FK requires same org). `orders.city_tier` may be omitted (defaults to `unknown`); `lookup_city_tier(city)` is available.
+- **Contracts proposal (for main)**: add settlements/shipments to CONTRACTS section 2 upsert list; sign convention gross/fees positive, net = gross - fees, refunds/adjustments as separate item lines.
