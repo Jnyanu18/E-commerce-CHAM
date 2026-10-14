@@ -48,6 +48,7 @@ class Store(Protocol):
     def get_integration(self, integration_id: str) -> IntegrationRow: ...
     def upsert_raw(self, records: Iterable[RawRecord]) -> UpsertResult: ...
     def max_payload_value(self, org_id: str, source: str, path: tuple[str, ...]) -> str | None: ...
+    def existing_external_ids(self, org_id: str, source: str, ids: list[str]) -> set[str]: ...
     def update_integration(self, integration_id: str, *, status: str | None = None,
                            last_synced_at: datetime | None = None, last_error: str | None = None,
                            clear_error: bool = False, backfill_done: bool | None = None) -> None: ...
@@ -97,6 +98,9 @@ class InMemoryStore:
             if isinstance(v, str) and (best is None or v > best):
                 best = v
         return best
+
+    def existing_external_ids(self, org_id, source, ids):
+        return {i for i in ids if (org_id, source, i) in self.raw}
 
     def update_integration(self, integration_id, *, status=None, last_synced_at=None, last_error=None,
                            clear_error=False, backfill_done=None):
@@ -171,6 +175,14 @@ class PsycopgStore:
                         (list(path), org_id, source))
             row = cur.fetchone()
         return row[0] if row else None
+
+    def existing_external_ids(self, org_id, source, ids):
+        if not ids:
+            return set()
+        with self.conn.cursor() as cur:
+            cur.execute("select external_id from raw_records where org_id=%s and source=%s "
+                        "and external_id = any(%s)", (org_id, source, list(ids)))
+            return {r[0] for r in cur.fetchall()}
 
     def update_integration(self, integration_id, *, status=None, last_synced_at=None, last_error=None,
                            clear_error=False, backfill_done=None):
