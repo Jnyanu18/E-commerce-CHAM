@@ -41,3 +41,16 @@ Verified by execution:
 - All money columns are bigint (arrays bigint[]); pincode is text; RLS is enabled on every public table except reference table `city_tiers`... (it also has RLS; only `orgs`/`city_tiers` lack `org_id` by design).
 - `claim_job()`: 6 concurrent workers claimed 6 distinct jobs; empty queue returns an all-null row. `worker/queue.py` retry/backoff verified against it (success -> done; failure -> requeued with backoff).
 Not verified / gaps found: Supabase-specific behaviour (real `auth.uid()` from JWT, PostgREST, service_role); no recovery for jobs stuck in `running` after a worker crash (needs a reaper on `locked_at`); `claim_job()` returns a null composite instead of zero rows (works, awkward); no org-creation path for users (service role only); `tier_1/unknown` migration and settlements table still pending (database agent).
+
+## Database agent (2026-10-14)
+### Done
+- Migrations 0005-0011 (city tier enum, pincode CHECK, settlements/settlement_items/shipments + reconciliation view, indexes, queue hardening with reaper, city tier seed + `lookup_city_tier()`, privilege hardening). 0001-0004 untouched.
+- `supabase/tests/`: `pre.sql` (Supabase default-privilege emulation + `service_role`), `helpers.sql`, tests 01-07, `run.sh` (recreates `db_agent`, applies stub + pre + all migrations, runs tests; 8-session `claim_job` concurrency test).
+- Executed on PostgreSQL 18.1 (localhost:54399): `bash supabase/tests/run.sh` -> all 7 test groups PASS. Also executed: upgrade path (0001-0004 with pre-existing `tier2`/NULL rows, then 0005-0011) migrates values correctly.
+### Not verified (real Supabase)
+JWT -> `auth.uid()` via PostgREST, `service_role` as shipped by Supabase (emulated here), PostgREST rpc exposure of functions, Supabase PG version (`ON DELETE SET NULL (col)` and `security_invoker` views need PG15+).
+### Integration Needed
+- **main (`engine/worker`)**: call `select reap_stale_jobs()` periodically (e.g. each poll loop or every few minutes); `queue.py` needs no change for `claim_job`. Still open from earlier review: `run_one` mutates `conn.row_factory`.
+- **main (`engine/seed/synthetic.py`)**: emits `tier1/tier2/tier3` in `CITIES`/`RTO_BASE`; must emit `tier_1/tier_2/tier_3` (DB now rejects the old values). Seed also leaves `pincode` null (allowed) .
+- **ledger**: upsert targets `settlements (org_id, channel, external_id)`, `settlement_items (settlement_id, order_external_id, line_type)`, `shipments (org_id, source, external_id)`; set `order_id` when the order is known (composite FK requires same org). `orders.city_tier` may be omitted (defaults to `unknown`); `lookup_city_tier(city)` is available.
+- **Contracts proposal (for main)**: add settlements/shipments to CONTRACTS section 2 upsert list; sign convention gross/fees positive, net = gross - fees, refunds/adjustments as separate item lines.
