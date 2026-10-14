@@ -42,7 +42,9 @@ def apply_bundle(repo: Repository, b: OrderBundle, summary: TransformSummary,
                  fee_rates: dict[str, dict[str, int]] | None = None) -> None:
     org, ch, ext = b.org_id, b.channel, b.external_id
     if b.partial:
-        found = repo.find_order(org, ch, ext)
+        found = repo.find_order(org, ch, ext) if ch and ext else None
+        for sh in b.shipments:  # courier rows never depend on the order existing; they link late
+            repo.upsert_shipment(org, sh, found["id"] if found else None, b.raw_ref)
         if not found:
             summary.deferred.append({"raw": b.raw_ref, "reason": "order_not_in_ledger", "order_ref": b.channel_ref})
             return
@@ -68,7 +70,7 @@ def apply_bundle(repo: Repository, b: OrderBundle, summary: TransformSummary,
     for r in b.returns:
         repo.upsert_return(org, order_id, r["type"], r.get("cost_paise"), r.get("returned_at"))
     for s in b.settlements:
-        repo.upsert_settlement(org, ch, order_id, ext, s, b.raw_ref)
+        repo.upsert_settlement_item(org, ext, s, b.raw_ref)
     for i in b.issues:
         summary.issues.append({"raw": b.raw_ref, "order": f"{ch}:{ext}", "issue": i})
 

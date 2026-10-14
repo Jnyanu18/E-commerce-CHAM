@@ -3,6 +3,7 @@ import pytest
 
 from ledger.pg_repository import PsycopgRepository
 from ledger.repository import LedgerError
+from transforms.common import make_settlement_item
 
 
 class FakeCursor:
@@ -59,7 +60,7 @@ def test_upsert_order_refuses_incomplete_create_and_unknown_fields():
     with pytest.raises(LedgerError):
         PsycopgRepository(FakeConn()).upsert_order("o", "shopify", "1", {"nope": 1})
     # partial patch on an existing order is fine
-    PsycopgRepository(FakeConn(order_rows=[{"id": "x"}])).upsert_order("o", "shopify", "1", {"status": "rto"})
+    PsycopgRepository(FakeConn(order_rows=[{"id": "x", "status": "placed"}])).upsert_order("o", "shopify", "1", {"status": "rto"})
 
 
 def test_fee_precedence_skip_and_supersede():
@@ -77,7 +78,11 @@ def test_return_item_settlement_sql_keys():
     r = PsycopgRepository(c)
     r.upsert_return("o", "ord", "RTO", None, None)
     r.upsert_items("o", "ord", [{"sku": "A", "qty": 1, "unit_price_paise": 5}])
-    r.upsert_settlement("o", "amazon", None, "X", {"settlement_ref": "S", "source": "csv_amazon", "amount_paise": 1}, {"source": "csv_amazon", "external_id": "1"})
+    item = make_settlement_item(channel="amazon", ref="S", source="csv", order_channel="amazon", settled_at=None,
+                                net_paise=1, gross_paise=1, fees_paise=0, issues=[])
+    r.upsert_settlement_item("o", "X", item, {"source": "csv_amazon", "external_id": "1"})
+    r.upsert_shipment("o", {"external_id": "9", "status": "delivered", "freight_cost_paise": 1, "cod_amount_paise": 0}, None, {})
     sqls = " | ".join(s for s, _ in c.calls)
+    assert "on conflict (org_id, channel, external_id)" in sqls and "on conflict (org_id, source, external_id)" in sqls
+    assert "on conflict (settlement_id, order_external_id, line_type)" in sqls
     assert "on conflict (order_id, type)" in sqls and "on conflict (order_id, sku)" in sqls
-    assert "on conflict (org_id, channel, settlement_ref, order_external_id)" in sqls

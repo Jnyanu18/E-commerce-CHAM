@@ -67,7 +67,11 @@ def test_full_flow_canonical_rows():
     assert repo.fees[(ret["id"], "shipping", "api")]["amount_paise"] == 5500
     cod = order(repo, "shopify", "5002")
     assert repo.fees[(cod["id"], "payment_gateway", "api")]["amount_paise"] == 2500
-    assert any(k[:3] == (ORG, "shopify", "REM-1") for k in repo.settlements)
+    assert (ORG, "shiprocket_cod", "REM-1") in repo.settlements
+    h = repo.settlements[(ORG, "shiprocket_cod", "REM-1")]
+    assert (h["gross_paise"], h["fees_paise"], h["net_paise"]) == (119900, 2500, 117400)   # net = gross - fees
+    assert repo.settlement_items[(ORG, "shiprocket_cod", "REM-1", "5002", "sale")]["order_id"] == cod["id"]
+    assert len(repo.shipments) == 4 and repo.shipments[(ORG, "shiprocket", "9002")]["status"] == "rto_delivered"
     assert order(repo, "shopify", "5008")["status"] == "cancelled"
     assert order(repo, "amazon", "AMZ-1")["gross_revenue_paise"] == 150000
     assert {k[1] for k in repo.items if k[0] == order(repo, "shopify", "5006")["id"]} == {"__MISSING_SKU__", "OIL-100"}
@@ -228,3 +232,11 @@ def test_job_handler_signature_and_summary():
     assert out["errors"] == []
     with pytest.raises(ValueError):
         run_transform_job({"payload": {}}, repo)
+
+
+def test_rto_orders_do_not_get_full_amount_in_refunds():
+    """RTO status never implies refunds_paise; it stays whatever the source reported (metrics assumption)."""
+    repo = seeded(("shopify_order", "5003", fx.SHOPIFY_RTO), ("shiprocket_shipment", "9002", fx.SHIPMENT_RTO))
+    run_transform(repo, ORG)
+    o = order(repo, "shopify", "5003")
+    assert o["status"] == "rto" and o["refunds_paise"] == 0

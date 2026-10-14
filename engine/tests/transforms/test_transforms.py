@@ -171,7 +171,10 @@ def test_shiprocket_delivered_cod_fees_and_remittance():
     b = transform_shiprocket_shipment(ORG, fx.SHIPMENT_DELIVERED)
     assert b.partial and b.channel_ref == "1002" and b.order == {"status": "delivered"}
     assert {(f["type"], f["amount_paise"], f["source"]) for f in b.fees} == {("shipping", 6000, "api"), ("payment_gateway", 2500, "api")}
-    assert b.settlements[0]["amount_paise"] == 117400 and b.settlements[0]["source"] == "shiprocket_cod"
+    s = b.settlements[0]
+    assert (s["channel"], s["net_paise"], s["fees_paise"], s["gross_paise"]) == ("shiprocket_cod", 117400, 2500, 119900)
+    [sh] = b.shipments
+    assert sh["status"] == "delivered" and sh["awb"] == "AWB1" and sh["freight_cost_paise"] == 6000 and sh["order_external_id"] == "1002"
 
 
 def test_shiprocket_rto_cost_and_missing_cost_surfaced():
@@ -212,8 +215,17 @@ def test_marketplace_multi_line_order_fees_and_settlement():
     assert b.order["ordered_at"] == "2026-09-10T04:30:00+00:00"  # naive date read as IST
     assert {(f["type"], f["amount_paise"]) for f in b.fees} == {("commission", 22500), ("fulfilment", 2000)}
     assert all(f["source"] == "csv" for f in b.fees)
-    assert b.settlements == [{"settlement_ref": "S-100", "source": "csv_amazon", "amount_paise": 125500,
-                              "settled_at": "2026-09-19T18:30:00+00:00"}]
+    [s] = b.settlements
+    assert (s["channel"], s["settlement_ref"], s["net_paise"], s["order_channel"]) == ("amazon", "S-100", 125500, "amazon")
+    assert s["settled_at"] == "2026-09-19T18:30:00+00:00" and s["line_type"] == "sale"
+    assert any(i.startswith("settlement_components_unknown") for i in b.issues)   # net-only: split not invented
+    # explicit split is honoured and checked: net = gross - fees
+    rows = [dict(fx.AMAZON_OK[0], settlement_gross="1500.00", settlement_fees="245.00")]
+    [b2] = transform_marketplace_rows(ORG, "amazon", _rows(rows))
+    assert (b2.settlements[0]["gross_paise"], b2.settlements[0]["fees_paise"]) == (150000, 24500)
+    assert not any(i.startswith("settlement_components") for i in b2.issues)
+    rows = [dict(fx.AMAZON_OK[0], settlement_gross="1500.00", settlement_fees="100.00")]
+    assert any(i.startswith("settlement_components_inconsistent") for i in transform_marketplace_rows(ORG, "amazon", _rows(rows))[0].issues)
 
 
 def test_marketplace_duplicate_line_id_not_double_counted():
@@ -254,3 +266,11 @@ def test_estimate_fees():
     o = {"gross_revenue_paise": 100000, "discounts_paise": 0, "shipping_charged_paise": 0}
     assert estimate_fees(o, {}) == []
     assert estimate_fees(o, {"payment_gateway": 200}) == [{"type": "payment_gateway", "amount_paise": 2000, "source": "estimated"}]
+
+
+def test_shipment_status_enum_mapping():
+    from transforms.shiprocket import shipment_status
+    assert shipment_status("RTO DELIVERED", False) == "rto_delivered" and shipment_status("RTO INITIATED", False) == "rto_initiated"
+    assert shipment_status("Delivered", False) == "delivered" and shipment_status("IN TRANSIT", False) == "in_transit"
+    assert shipment_status("OUT FOR DELIVERY", False) == "out_for_delivery" and shipment_status("CANCELED", False) == "cancelled"
+    assert shipment_status("???", False) == "unknown" and shipment_status(None, False) == "unknown"

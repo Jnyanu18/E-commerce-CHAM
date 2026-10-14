@@ -49,7 +49,8 @@ class OrderBundle:
     items: list[dict] = field(default_factory=list)
     fees: list[dict] = field(default_factory=list)       # {type, amount_paise, source}
     returns: list[dict] = field(default_factory=list)    # {type, cost_paise|None, returned_at|None}
-    settlements: list[dict] = field(default_factory=list)
+    settlements: list[dict] = field(default_factory=list)  # settlement ITEM lines, see make_settlement_item
+    shipments: list[dict] = field(default_factory=list)    # shipments rows (courier side)
     raw_ref: dict = field(default_factory=dict)          # {source, external_id}: link back to raw_records
     issues: list[str] = field(default_factory=list)
     partial: bool = False
@@ -151,3 +152,22 @@ def merge_lines(lines: list[dict], issues: list[str]) -> list[dict]:
             issues.append(f"unit_price_rounded: {m['sku']}")
         out.append({"sku": m["sku"], "qty": m["qty"], "unit_price_paise": unit})
     return out
+
+
+def make_settlement_item(*, channel: str, ref: str, source: str, order_channel: str, settled_at: str | None,
+                         net_paise: int, gross_paise: int | None, fees_paise: int | None, issues: list[str],
+                         line_type: str = "sale") -> dict:
+    """One settlement_items line for one order. Sign convention (migration 0007): gross/fees are positive
+    magnitudes and net = gross - fees. Missing components are surfaced, never invented."""
+    if gross_paise is None and fees_paise is None:
+        gross_paise, fees_paise = net_paise, 0
+        issues.append(f"settlement_components_unknown: {ref} (only net payout reported; fees/gross not split)")
+    elif gross_paise is None:
+        gross_paise = net_paise + fees_paise
+    elif fees_paise is None:
+        fees_paise = gross_paise - net_paise
+    if gross_paise - fees_paise != net_paise:
+        issues.append(f"settlement_components_inconsistent: {ref} gross {gross_paise} - fees {fees_paise} != net {net_paise}")
+    return {"channel": channel, "settlement_ref": ref, "source": source, "order_channel": order_channel,
+            "settled_at": settled_at, "line_type": line_type, "gross_paise": gross_paise, "fees_paise": fees_paise,
+            "net_paise": net_paise}
