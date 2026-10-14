@@ -182,3 +182,19 @@ def test_transient_failure_keeps_status_but_keeps_partial_raw():
     i = s.integrations["int-shopify"]
     assert i.status == "pending" and "transient_error" in i.last_error and not i.backfill_done
     assert len(s.raw) == 1  # raw persisted page-by-page before the failure
+
+
+def test_registry_builds_connector_from_encrypted_integration():
+    from connectors.registry import build_connector
+    from connectors.shopify import ShopifyConnector
+    key = base64.b64encode(os.urandom(32)).decode()
+    s = InMemoryStore()
+    integ = make_integration(s, "shopify", "syn.myshopify.com")
+    integ.credentials_enc = encrypt({"access_token": "shpat_syn_000001"}, key)
+    c = build_connector(s, integ.id, key)
+    assert isinstance(c, ShopifyConnector) and "shpat" not in repr(c.credentials)
+    assert c.http._classify == c.classify
+    csv_i = make_integration(s, "csv", "upload")
+    from connectors.errors import ConfigError
+    with pytest.raises(ConfigError):
+        build_connector(s, csv_i.id, key)
