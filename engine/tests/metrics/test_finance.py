@@ -223,3 +223,14 @@ def test_to_dict_matches_contract_shape():
     assert set(d["data_quality"]) == {"status", "issues", "row_count"}
     assert d["groups"] == [{"key": "shopify", "value": 56000}]
     assert d["definition"].startswith("contribution_margin = net_revenue - COGS - fees - shipping cost - RTO/return cost")
+
+
+def test_ledger_missing_sku_placeholder_is_missing_cogs():
+    # Even if someone created a sku_cogs row for the placeholder, it is never used: COGS unknown, flagged.
+    repo = InMemoryRepository().add(
+        ORG, orders=[order("a", "a", "2026-09-14 06:00:00", gross_revenue_paise=10000)],
+        items=[ItemRow("a", "__MISSING_SKU__", 1, 10000)], sku_cogs=[SkuCogsRow("__MISSING_SKU__", date(2026, 1, 1), 1)],
+    )
+    r = contribution_margin(ORG, PERIOD, repo=repo)
+    assert r.value == 10000 and r.data_quality.status == "degraded"
+    assert "cogs_missing_for_skus: ['__MISSING_SKU__']" in r.data_quality.issues
