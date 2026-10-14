@@ -26,3 +26,10 @@
 - **Reason:** The Round 1 build briefs specify these; settling them in the shared contract before eight agents start prevents divergence.
 - **Impact:** Database agent must migrate the tier enum; ledger and metrics use the new values. Earlier launch prompts reference the old names only in passing; the contract wins.
 - **Date:** 2026-10-14 **Agent:** main
+
+## Ledger merge and GST rules (2026-10-14, agent: ledger)
+- **Decision:** (1) `gross_revenue_paise` is GST-inclusive item value before discounts; `taxes_paise` is the GST contained in (gross - discounts + shipping); tax-exclusive sources have tax added to gross. (2) Order status merges by fixed precedence placed<shipped<delivered<cancelled<returned<rto, so any arrival order converges. (3) Fee precedence per (order, type): api > csv > estimated; actuals delete lower rows, estimates are skipped when an actual exists. (4) Shipments are partial patches that never create orders; unlinked ones are deferred, never guessed. (5) Missing SKU -> `__MISSING_SKU__` placeholder plus surfaced issue. (6) Reconciliation never adjusts; it reports.
+- **Alternatives:** timestamp-based last-write-wins status; coexisting estimated and actual fee rows with metrics choosing; dropping SKU-less lines; ex-GST gross.
+- **Reason:** order-independence and idempotency without extra columns; avoid double-counted fees; no silent data loss.
+- **Impact:** metrics must read fees as stored (one row per type) and treat the placeholder SKU as unknown COGS. Status precedence means a later cancellation of a delivered order is not reflected until revisited.
+- **Date:** 2026-10-14 **Agent:** ledger
