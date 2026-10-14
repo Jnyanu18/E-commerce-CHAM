@@ -37,3 +37,8 @@ Ledger now writes `metro | tier_1 | tier_2 | tier_3 | unknown`; the 0002 check c
 
 ### 4. Placeholder SKU (FYI, no change)
 Order lines with no SKU are stored with `sku = '__MISSING_SKU__'` (order_items.sku is NOT NULL) and surfaced as a `missing_sku` issue/discrepancy. Metrics must treat it as "COGS unknown", never as zero.
+
+### Ledger adaptation to migration 0007 (2026-10-14)
+Ledger now writes the REAL tables: `settlements` (header key org_id, channel, external_id; gross/fees/net recomputed from items),
+`settlement_items` (sale lines; `order_id` resolved when the order exists), `shipments` (key org_id, source='shiprocket', external_id).
+Request #1 above is superseded; no further schema change requested. Verified against PostgreSQL 18 with migrations 0001-0011.
