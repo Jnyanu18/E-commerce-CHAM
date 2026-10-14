@@ -30,3 +30,27 @@
 8. **Schema gaps to confirm.** No insert policy on `orgs`/`org_members` (pilots onboarded via service role; fine for MVP). No settlements table although the ledger scope mentions settlements/reconciliation, so a schema change request is likely. `city_tiers` is empty and needs seeding.
 9. **`web/` is a placeholder** (only `.gitkeep`); frontend agent must scaffold Next.js. `engine/.gitkeep` is redundant.
 10. **Product name unset.** CRLF warnings are addressed by `.gitattributes`.
+
+## Connectors agent (branch agent/connectors, 2026-10-14)
+### Done
+- `engine/connectors/`: lifecycle base (`base.py`), typed errors, retrying HTTP client (exponential backoff, full jitter, Retry-After), credentials via `app.crypto` (never logged), in-memory + psycopg stores, `transform` job enqueue, registry.
+- Shopify GraphQL (orders, line items, refunds, hashed customer identity, windowed backfill, updated_at incremental, cost-based throttle handling), Shiprocket (shipments), Meta insights, Google Ads (campaign daily), generic CSV engine (mapping, preview, row-level report, dedupe, idempotent import, saved mappings).
+- `engine/connectors/NOTES.md`: per-provider doc URLs, 2026-10-14 check, versions, scopes, limits, unverified items.
+- 63 tests in `engine/tests/connectors/` (all mocked; **nothing live-tested**).
+### In Progress
+- Nothing.
+### Blocked (credentials / approvals / lead times; lead times are estimates, not published SLAs unless stated)
+| Provider | Needed | Lead time |
+|---|---|---|
+| Shopify | Partner app (public, review) or custom app per merchant; `read_orders`, **`read_all_orders` (Shopify approval; without it only last 60 days)**; protected customer data Level 2 access for email/phone/zip (review for public apps); expiring offline tokens required for public apps by 2027-01-01 | Custom app: days. Public app + scope approvals: weeks (estimate) |
+| Shiprocket | A dedicated **API user** per merchant (Settings > API, email not already on Shiprocket); no app review documented | Same day (estimate) |
+| Meta | Meta developer app, `ads_read`; Standard access automatic, **Advanced access via App Review** + **Business Verification** for other businesses' ad accounts; token strategy (system user / long-lived) unverified | Weeks (estimate) |
+| Google Ads | Cloud project + Ads API enabled, **developer token** from an MCC, OAuth client + consent screen, access level Explorer -> Basic (brand verification) -> Standard (manual audit; ~10 business days documented for Standard) | 1-4 weeks (estimate); Explorer is limited to 2,880 production ops/day |
+| CSV marketplaces | Real sample exports (see NOTES.md) | Depends on user |
+- Docker/Postgres unavailable: `PsycopgStore` SQL (upsert with `xmax = 0`, `#>>` max, csv_mappings upsert, `worker.queue.enqueue`) is UNEXECUTED; needs a run against real Postgres.
+- Shiprocket list endpoint/pagination/login-token key come from secondary sources; first live call must confirm.
+### Integration Needed
+- **Main (web/API):** Shopify OAuth install + token refresh, Meta/Google OAuth connect flows, Shiprocket credential form, CSV upload endpoint (call `connectors.csv_import.preview` / `import_csv`), a worker handler `sync_<provider>` calling `registry.build_connector(...).run_sync()` and scheduling daily incremental runs; decide the AAD used with `app.crypto.encrypt/decrypt` (connectors accept any `aad`, default `b""`); webhook receivers (Shiprocket, Shopify) are out of scope.
+- **Security decision for main:** customer hash mode. Implemented plain sha256 of normalised email/phone (as specified); HMAC with a pepper is supported (`identity_pepper`) but must then be used identically by every producer of `customer_key`. Unsalted phone hashes are brute-forceable.
+- **Ledger:** payload shapes are provider-verbatim except (a) Shopify `email`/`phone` replaced by `customerIdentity{emailSha256,phoneSha256,hmac}`; (b) CSV rows are `{row, mapped, _import}`; money in Shopify/Meta payloads is decimal strings, Google `costMicros` is a string of micros. Convert to paise in ledger.
+- No schema change needed. Optional: `integrations.sync_state jsonb` would replace the watermark derived from raw data (not requested).
