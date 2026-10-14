@@ -8,7 +8,8 @@ dependencies = [
 ]
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-[tool.setuptools]
-packages = ["app", "metrics", "connectors", "worker", "seed"]
+[tool.setuptools.packages.find]
+include = ["app*", "worker*", "seed*", "metrics*", "connectors*", "ledger*", "transforms*", "reconciliation*", "intelligence*", "models*", "anomaly*", "ai*"]
+namespaces = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
