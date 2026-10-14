@@ -13,7 +13,7 @@
 - Parallel development preparation
 
 ## Blocked
-- Docker unavailable: migrations require real PostgreSQL/Supabase verification (unverified, e.g. generated column `ordered_date_ist`, column-level grants, `claim_job()`)
+- Docker unavailable (Postgres verified without it; see below). Real Supabase (GoTrue, JWT claims, PostgREST) is still unverified.
 - External API credentials/approvals pending (Shopify app, Meta App Review, Google Ads developer token, Shiprocket)
 
 ## Integration Needed
@@ -30,3 +30,14 @@
 8. **Schema gaps to confirm.** No insert policy on `orgs`/`org_members` (pilots onboarded via service role; fine for MVP). No settlements table although the ledger scope mentions settlements/reconciliation, so a schema change request is likely. `city_tiers` is empty and needs seeding.
 9. **`web/` is a placeholder** (only `.gitkeep`); frontend agent must scaffold Next.js. `engine/.gitkeep` is redundant.
 10. **Product name unset.** CRLF warnings are addressed by `.gitattributes`.
+
+## Database verification (main, 2026-10-14)
+Executed on a throwaway **PostgreSQL 18.1** instance (port 54399, installed binaries, separate data dir; not Supabase). Migrations 0001-0004 applied cleanly on top of `local_stub.sql` plus emulated Supabase default privileges.
+Verified by execution:
+- Generated column `ordered_date_ist` is valid and converts correctly (20:00Z -> next IST day).
+- Unique natural keys reject duplicates; CHECK constraints reject negative COGS, bad payment method, and `tier_1` (the old enum, as expected until the database agent migrates it).
+- RLS: member sees only their org's orders/integrations/orgs; cross-tenant insert blocked; member cannot write pipeline tables, create orgs, or add themselves to another org; anon sees nothing.
+- Credentials: `select credentials_enc` and `select *` on `integrations` are denied for `authenticated`; safe columns are readable.
+- All money columns are bigint (arrays bigint[]); pincode is text; RLS is enabled on every public table except reference table `city_tiers`... (it also has RLS; only `orgs`/`city_tiers` lack `org_id` by design).
+- `claim_job()`: 6 concurrent workers claimed 6 distinct jobs; empty queue returns an all-null row. `worker/queue.py` retry/backoff verified against it (success -> done; failure -> requeued with backoff).
+Not verified / gaps found: Supabase-specific behaviour (real `auth.uid()` from JWT, PostgREST, service_role); no recovery for jobs stuck in `running` after a worker crash (needs a reaper on `locked_at`); `claim_job()` returns a null composite instead of zero rows (works, awkward); no org-creation path for users (service role only); `tier_1/unknown` migration and settlements table still pending (database agent).
