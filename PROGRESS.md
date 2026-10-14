@@ -70,3 +70,18 @@ JWT -> `auth.uid()` via PostgREST, `service_role` as shipped by Supabase (emulat
 - **main (`engine/seed/synthetic.py`)**: emits `tier1/tier2/tier3` in `CITIES`/`RTO_BASE`; must emit `tier_1/tier_2/tier_3` (DB now rejects the old values). Seed also leaves `pincode` null (allowed) .
 - **ledger**: upsert targets `settlements (org_id, channel, external_id)`, `settlement_items (settlement_id, order_external_id, line_type)`, `shipments (org_id, source, external_id)`; set `order_id` when the order is known (composite FK requires same org). `orders.city_tier` may be omitted (defaults to `unknown`); `lookup_city_tier(city)` is available.
 - **Contracts proposal (for main)**: add settlements/shipments to CONTRACTS section 2 upsert list; sign convention gross/fees positive, net = gross - fees, refunds/adjustments as separate item lines.
+## Ledger agent (agent/ledger, 2026-10-14)
+### Done
+- Pure transforms (`engine/transforms/`): Shopify order, Shiprocket shipment (partial/patch bundle), neutral marketplace CSV schema (Amazon, Flipkart, Blinkit, Zepto, Instamart), estimated-fee helper.
+- Persistence (`engine/ledger/`): abstract `Repository`, `InMemoryRepository`, `PsycopgRepository`; idempotent pipeline `run_transform`; job handlers `handle_transform` / `handle_reconcile` (signature `(job, conn) -> None`).
+- Reconciliation (`engine/reconciliation/report.py`): structured per org/channel/period discrepancy report, read-only.
+- 58 ledger tests added (61 total in engine suite passing).
+### In Progress
+- Nothing.
+### Blocked
+- Settlement persistence needs the `settlements` table (docs/SCHEMA_CHANGE_REQUESTS.md #1). `PsycopgRepository` never run against a real Postgres.
+- Writing `city_tier` values `tier_1..` needs the database agent's enum migration.
+### Integration Needed
+- Main: register `{"transform": ledger.jobs.handle_transform, "reconcile": ledger.jobs.handle_reconcile}` in the worker; `engine/seed` loader unaffected.
+- Connectors: ALL source payload shapes are ASSUMED (see module docstrings of `transforms/shopify.py`, `shiprocket.py`, `marketplace.py`). Confirm Shopify/Shiprocket fields; map each marketplace CSV onto the neutral row schema; Shiprocket `channel_order_id` is assumed to be the Shopify id, name or order_number. Raw `external_id` for CSV rows should be unique per line.
+- Metrics: GST rule in `transforms/common.py` docstring (gross is GST-inclusive, taxes_paise contained within); `__MISSING_SKU__` means COGS unknown; estimated fees are superseded by actuals (api > csv > estimated per order+type).
