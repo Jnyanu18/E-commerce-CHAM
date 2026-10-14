@@ -6,7 +6,7 @@ with expected / actual / diff in paise and a machine-readable code. It does not 
 Expected payout for an order (the identity under test):
     customer_paid = gross_revenue - discounts + shipping_charged                (GST-inclusive, see transforms.common)
     expected_payout = customer_paid - refunds - sum(actual fees whose type is netted by that settlement source)
-Which fee types a settlement source nets is an ASSUMPTION (``DEFAULT_NETTED_FEE_TYPES``): marketplace CSV
+Which fee types a settlement channel nets is an ASSUMPTION (``DEFAULT_NETTED_FEE_TYPES``): marketplace
 settlements net all fee types; Shiprocket COD remittance nets only the COD charge ('payment_gateway'). Override
 via ``netted_fee_types`` once real samples exist. Only ACTUAL fees (api/csv) count; if an order has only
 estimated fees the comparison is still made but flagged ``basis: estimated_fees``.
@@ -26,7 +26,7 @@ from typing import Any
 from transforms.common import MISSING_SKU
 
 ALL_FEES = "*"
-DEFAULT_NETTED_FEE_TYPES: dict[str, Any] = {"csv_": ALL_FEES, "shiprocket_cod": {"payment_gateway"}}
+DEFAULT_NETTED_FEE_TYPES: dict[str, Any] = {"shiprocket_cod": {"payment_gateway"}}  # other channels: all fees
 ACTUAL = ("api", "csv")
 SEVERITY = {"settlement_amount_mismatch": "error", "settlement_missing": "warning", "settlement_without_order": "error",
             "settlement_for_cancelled_order": "error", "settlement_for_rto_order": "error",
@@ -38,11 +38,8 @@ AMOUNT_CODES = {"settlement_amount_mismatch", "settlement_missing", "settlement_
                 "settlement_for_cancelled_order", "settlement_for_rto_order"}
 
 
-def _netted(source: str, table: dict) -> Any:
-    for prefix, v in table.items():
-        if source == prefix or (prefix.endswith("_") and source.startswith(prefix)):
-            return v
-    return ALL_FEES  # unknown source: assume everything is netted, flagged in assumptions
+def _netted(settlement_channel: str, table: dict) -> Any:
+    return table.get(settlement_channel, ALL_FEES)  # unlisted channel: assume everything is netted (see assumptions)
 
 
 def _dt(v: Any) -> datetime:
@@ -115,7 +112,7 @@ def reconcile_snapshot(org_id: str, start: date, end: date, snap: dict[str, list
         t["settled_paise"] += settled
         seen = defaultdict(list)
         for s in sets:
-            seen[(s["source"], s["amount_paise"])].append(s["settlement_ref"])
+            seen[(s["settlement_channel"], s["amount_paise"])].append(s["settlement_ref"])
         for (src, amt), refs in seen.items():
             if len(refs) > 1:
                 flag(c, "possible_duplicate_settlement", ext, actual=amt * len(refs), refs=sorted(refs), source=src)
@@ -130,7 +127,7 @@ def reconcile_snapshot(org_id: str, start: date, end: date, snap: dict[str, list
         if sets:
             by_src: dict[str, int] = defaultdict(int)
             for s in sets:
-                by_src[s["source"]] += s["amount_paise"]
+                by_src[s["settlement_channel"]] += s["amount_paise"]
             exp_total = 0
             for src in by_src:
                 net = _netted(src, table)
@@ -150,10 +147,10 @@ def reconcile_snapshot(org_id: str, start: date, end: date, snap: dict[str, list
             flag(c, "settlement_missing", ext, exp, 0, grace_days=grace_days)
 
     for s in orphans:
-        c = s["channel"]
+        c = s["settlement_channel"]
         ch(c)["totals"]["settled_paise"] += s["amount_paise"]
         flag(c, "settlement_without_order", s["order_external_id"], 0, s["amount_paise"], settlement_ref=s["settlement_ref"],
-             source=s["source"])
+             source=s["settlement_channel"])
 
     out = []
     for name in sorted(chans):

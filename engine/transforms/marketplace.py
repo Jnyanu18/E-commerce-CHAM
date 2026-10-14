@@ -19,7 +19,9 @@ lines of an order, so repeat a value on one line only):
   commission_fee, fixed_fee (-> 'fulfilment'), shipping_fee, payment_fee (-> 'payment_gateway'), other_fee
                    marketplace-reported fees, taken exactly as reported (GST on fees, if any, is whatever
                    the column contains; documented per mapping once samples exist). Source tag = 'csv'.
-  settlement_ref, settlement_amount, settlement_date   net payout credited for the order line(s)
+  settlement_ref, settlement_amount, settlement_date   NET payout credited for the order line(s)
+  settlement_gross, settlement_fees   optional split (net = gross - fees, both positive); if absent the split is
+                   unknown and an issue is raised (net-only item: gross = net, fees = 0)
 
 GST: item_price is assumed GST-inclusive for all marketplaces (the Indian consumer-price convention); ``tax``
 is the GST contained in it, so gross_revenue = sum(unit price x qty) with no uplift.
@@ -29,8 +31,8 @@ from __future__ import annotations
 from collections import OrderedDict
 from typing import Any, Iterable
 
-from .common import (IST, MISSING_SKU, OrderBundle, TransformError, city_tier, customer_key, merge_lines,
-                     normalise_pincode, parse_ts, to_paise, ts_iso)
+from .common import (IST, MISSING_SKU, OrderBundle, TransformError, city_tier, customer_key, make_settlement_item,
+                     merge_lines, normalise_pincode, parse_ts, to_paise, ts_iso)
 
 MARKETPLACES = ("amazon", "flipkart", "blinkit", "zepto", "instamart")
 QUICK_COMMERCE = ("blinkit", "zepto", "instamart")
@@ -136,10 +138,14 @@ def _build(org_id: str, channel: str, oid: str, group: list[tuple[str, dict]], t
             issues.append(f"unmapped_return_type: {rt!r}")
         sref = str(r.get("settlement_ref") or "").strip()
         if sref and r.get("settlement_amount") not in (None, ""):
-            s = settle.setdefault(sref, {"settlement_ref": sref, "source": f"csv_{channel}", "amount_paise": 0,
-                                         "settled_at": ts_iso(parse_ts(r.get("settlement_date"), naive_tz=IST,
-                                                                      field_name="settlement_date"))})
-            s["amount_paise"] += to_paise(r.get("settlement_amount"), field_name="settlement_amount")
+            s = settle.setdefault(sref, {"ref": sref, "net": 0, "gross": None, "fees": None,
+                                         "at": ts_iso(parse_ts(r.get("settlement_date"), naive_tz=IST,
+                                                               field_name="settlement_date"))})
+            s["net"] += to_paise(r.get("settlement_amount"), field_name="settlement_amount")
+            for k, col in (("gross", "settlement_gross"), ("fees", "settlement_fees")):
+                v = to_paise(r.get(col), field_name=col, default=None)
+                if v is not None:
+                    s[k] = (s[k] or 0) + v
 
     if ordered_at is None:
         raise TransformError(f"{channel} order {oid}: order_date missing")
@@ -183,5 +189,8 @@ def _build(org_id: str, channel: str, oid: str, group: list[tuple[str, dict]], t
     }
     fees = [{"type": t, "amount_paise": a, "source": "csv"} for t, a in sorted(fee_tot.items())]
     return OrderBundle(org_id=org_id, channel=channel, external_id=oid, order=order, items=items, fees=fees,
-                       returns=returns, settlements=list(settle.values()),
+                       returns=returns,
+                       settlements=[make_settlement_item(channel=channel, ref=s["ref"], source="csv", order_channel=channel,
+                                                         settled_at=s["at"], net_paise=s["net"], gross_paise=s["gross"],
+                                                         fees_paise=s["fees"], issues=issues) for s in settle.values()],
                        raw_ref={"source": f"csv_{channel}", "external_id": group[0][0]}, issues=issues)

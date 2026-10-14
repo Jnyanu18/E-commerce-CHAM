@@ -9,7 +9,11 @@
 * fees     key (order_id, type, source)   precedence api > csv > estimated per (order, type):
            an estimate is skipped if an actual exists; an actual removes a lower-precedence row.
 * returns  key (order_id, type)           cost/returned_at overwritten only by non-None values.
-* settlements (assumed table, see docs/SCHEMA_CHANGE_REQUESTS.md) key (org_id, channel, settlement_ref, order_external_id).
+* settlements  header key (org_id, channel, external_id); items key (settlement, order_external_id, line_type)
+           (migration 0007). Header gross/fees/net are RECOMPUTED from items after every item upsert, so partial
+           runs cannot shrink a header. Item order_id is resolved from (org, order_channel, order_external_id) and
+           stays null (unreconciled) until the order exists.
+* shipments  key (org_id, source, external_id); status merges by precedence, other fields only overwritten by non-None.
 """
 from __future__ import annotations
 
@@ -22,6 +26,8 @@ from typing import Any
 from transforms.common import STATUS_RANK, ist_date
 
 FEE_PRECEDENCE = {"estimated": 0, "csv": 1, "api": 2}
+SHIPMENT_RANK = {"unknown": 0, "created": 1, "in_transit": 2, "out_for_delivery": 3, "delivered": 4, "cancelled": 4,
+                 "lost": 4, "rto_initiated": 5, "rto_delivered": 6}
 ORDER_REQUIRED = ("ordered_at", "gross_revenue_paise", "payment_method")
 ORDER_FIELDS = ("ordered_at", "customer_key", "city", "city_tier", "pincode", "payment_method", "status",
                 "gross_revenue_paise", "discounts_paise", "taxes_paise", "shipping_charged_paise", "refunds_paise")
@@ -52,8 +58,10 @@ class Repository(ABC):
     @abstractmethod
     def upsert_return(self, org_id: str, order_id: str, rtype: str, cost_paise: int | None, returned_at: str | None) -> None: ...
     @abstractmethod
-    def upsert_settlement(self, org_id: str, channel: str, order_id: str | None, order_external_id: str,
-                          settlement: dict, raw_ref: dict) -> None: ...
+    def upsert_settlement_item(self, org_id: str, order_external_id: str, item: dict, raw_ref: dict) -> None:
+        """item = transforms.common.make_settlement_item(...) output."""
+    @abstractmethod
+    def upsert_shipment(self, org_id: str, shipment: dict, order_id: str | None, raw_ref: dict) -> None: ...
     @abstractmethod
     def iter_raw_records(self, org_id: str, sources: list[str] | None = None, since: str | None = None) -> list[dict]: ...
     @abstractmethod
@@ -69,7 +77,9 @@ class InMemoryRepository(Repository):
         self.items: dict[tuple, dict] = {}
         self.fees: dict[tuple, dict] = {}
         self.returns: dict[tuple, dict] = {}
-        self.settlements: dict[tuple, dict] = {}
+        self.settlements: dict[tuple, dict] = {}       # header: (org, channel, external_id)
+        self.settlement_items: dict[tuple, dict] = {}  # (org, channel, external_id, order_external_id, line_type)
+        self.shipments: dict[tuple, dict] = {}
         self.raw: dict[tuple, dict] = {}
         self.city_tiers: dict[str, str] = {}
 
@@ -128,10 +138,34 @@ class InMemoryRepository(Repository):
         if returned_at is not None:
             cur["returned_at"] = returned_at
 
-    def upsert_settlement(self, org_id, channel, order_id, order_external_id, settlement, raw_ref):
-        key = (org_id, channel, settlement["settlement_ref"], order_external_id)
-        self.settlements[key] = {"org_id": org_id, "channel": channel, "order_id": order_id,
-                                 "order_external_id": order_external_id, "raw_ref": dict(raw_ref), **settlement}
+    def upsert_settlement_item(self, org_id, order_external_id, item, raw_ref):
+        hkey = (org_id, item["channel"], item["settlement_ref"])
+        order = self.orders.get((org_id, item["order_channel"], order_external_id))
+        self.settlement_items[hkey + (order_external_id, item["line_type"])] = {
+            "org_id": org_id, "settlement_channel": item["channel"], "settlement_ref": item["settlement_ref"],
+            "order_external_id": order_external_id, "order_channel": item["order_channel"],
+            "order_id": order["id"] if order else None, "line_type": item["line_type"], "gross_paise": item["gross_paise"],
+            "fees_paise": item["fees_paise"], "net_paise": item["net_paise"], "amount_paise": item["net_paise"],
+            "settled_at": item.get("settled_at"), "source": item["source"], "raw_ref": dict(raw_ref)}
+        mine = [i for k, i in self.settlement_items.items() if k[:3] == hkey]
+        h = self.settlements.setdefault(hkey, {"org_id": org_id, "channel": item["channel"], "external_id": item["settlement_ref"]})
+        h.update(gross_paise=sum(i["gross_paise"] for i in mine), fees_paise=sum(i["fees_paise"] for i in mine),
+                 net_paise=sum(i["net_paise"] for i in mine), source=item["source"],
+                 settled_at=item.get("settled_at") or h.get("settled_at"))
+
+    def upsert_shipment(self, org_id, shipment, order_id, raw_ref):
+        key = (org_id, shipment.get("source", "shiprocket"), shipment["external_id"])
+        cur = self.shipments.get(key)
+        row = {"org_id": org_id, "source": key[1], "order_id": order_id, "raw_ref": dict(raw_ref), **shipment}
+        if cur:
+            for k, v in row.items():
+                if v is None or k == "status":
+                    row[k] = cur.get(k) if v is None else v
+            if SHIPMENT_RANK[cur["status"]] > SHIPMENT_RANK[row["status"]]:
+                row["status"] = cur["status"]
+            if row["order_id"] is None:
+                row["order_id"] = cur.get("order_id")
+        self.shipments[key] = row
 
     def iter_raw_records(self, org_id, sources=None, since=None):
         rows = [r for r in self.raw.values() if r["org_id"] == org_id and (not sources or r["source"] in sources)
@@ -151,7 +185,7 @@ class InMemoryRepository(Repository):
                 orders.append({**o, "ordered_date_ist": d})
         ids = {o["id"] for o in orders}
         settlements = []
-        for s in self.settlements.values():
+        for s in self.settlement_items.values():
             if s["org_id"] != org_id:
                 continue
             if s["order_id"] in ids:
