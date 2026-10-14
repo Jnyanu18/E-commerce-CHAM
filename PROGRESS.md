@@ -1,16 +1,17 @@
 # Progress
 
 ## Done
-- Repo skeleton, git init; schema migrations 0001-0004 approved by user
-- Engine scaffold: config, AES-GCM credential crypto, paise helpers, Postgres job queue (worker/queue.py), FastAPI /health
-- Synthetic Indian D2C seed generator (engine/seed/synthetic.py), deterministic
-- docker-compose + local Supabase stub (untested: Docker not installed)
-- 3 tests passing
+### Main / workspace
+- Schema migrations 0001-0004 (approved), engine scaffold (config, crypto, money, job queue, /health), synthetic seed generator, docker-compose; 3 tests passing
+- Multi-agent workspace: 7 agent branches + real git worktrees under `worktrees/`; `docs/AGENT_WORKFLOW.md`, `docs/CONTRACTS.md`, `docs/SCHEMA_CHANGE_REQUESTS.md`
 
-## In progress
-- Week 1: DB loader for seed, raw -> ledger transform, auth + Next.js scaffold, COGS UI, connectors
+## In Progress
+- Nothing assigned. Awaiting agent task assignments.
 
-## Blocked / needs user
+## Blocked
 - Docker not installed (migrations unverified against a real Postgres)
 - Shopify/Meta/Google Ads/Shiprocket credentials and approvals (Meta App Review, Google developer token)
-- Product name
+- Product name; master prompt not yet saved as `CLAUDE.md`
+
+## Integration Needed
+- Schema is unverified on real Postgres; database agent should do this first.
