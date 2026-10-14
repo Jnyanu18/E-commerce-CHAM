@@ -90,3 +90,26 @@ JWT -> `auth.uid()` via PostgREST, `service_role` as shipped by Supabase (emulat
 - Adapted to migration 0007: `PsycopgRepository` writes `settlements` / `settlement_items` / `shipments`; Shiprocket data lands in `shipments` even before its order exists; COD remittance is a settlement on channel `shiprocket_cod` (net = remitted, fees = COD charge, gross = net + fees: ASSUMED). Marketplace settlement lines are net-only unless the neutral row carries `settlement_gross` / `settlement_fees` (a `settlement_components_unknown` issue is raised otherwise). Settlement items are not written until the order reference resolves, to avoid duplicate items under an unresolved reference.
 - Ran against real PostgreSQL 18 (scratch db `ledger_agent`, migrations 0001-0011). `engine/tests/ledger/test_pg_integration.py` runs when `DATABASE_URL` is set (e.g. `postgresql://postgres@localhost:54399/ledger_agent`), else skips. Bug found and fixed: partial order patches (shipment status) failed on `INSERT .. ON CONFLICT` NOT NULL checks; now a plain UPDATE.
 - **Answer to metrics (RTO and refunds):** NO. An order with status `rto` does not get the full amount in `refunds_paise`. `refunds_paise` is only what the source reports (Shopify successful refund transactions, marketplace `refund_amount`); an RTO COD order has 0, a prepaid RTO has 0 until the source reports a refund (reconciliation flags `rto_prepaid_not_refunded`). Tested in memory and on Postgres.
+## Connectors agent (branch agent/connectors, 2026-10-14)
+### Done
+- `engine/connectors/`: lifecycle base (`base.py`), typed errors, retrying HTTP client (exponential backoff, full jitter, Retry-After), credentials via `app.crypto` (never logged), in-memory + psycopg stores, `transform` job enqueue, registry.
+- Shopify GraphQL (orders, line items, refunds, hashed customer identity, windowed backfill, updated_at incremental, cost-based throttle handling), Shiprocket (shipments), Meta insights, Google Ads (campaign daily), generic CSV engine (mapping, preview, row-level report, dedupe, idempotent import, saved mappings).
+- `engine/connectors/NOTES.md`: per-provider doc URLs, 2026-10-14 check, versions, scopes, limits, unverified items.
+- 63 tests in `engine/tests/connectors/` (all mocked; **nothing live-tested**).
+### In Progress
+- Nothing.
+### Blocked (credentials / approvals / lead times; lead times are estimates, not published SLAs unless stated)
+| Provider | Needed | Lead time |
+|---|---|---|
+| Shopify | Partner app (public, review) or custom app per merchant; `read_orders`, **`read_all_orders` (Shopify approval; without it only last 60 days)**; protected customer data Level 2 access for email/phone/zip (review for public apps); expiring offline tokens required for public apps by 2027-01-01 | Custom app: days. Public app + scope approvals: weeks (estimate) |
+| Shiprocket | A dedicated **API user** per merchant (Settings > API, email not already on Shiprocket); no app review documented | Same day (estimate) |
+| Meta | Meta developer app, `ads_read`; Standard access automatic, **Advanced access via App Review** + **Business Verification** for other businesses' ad accounts; token strategy (system user / long-lived) unverified | Weeks (estimate) |
+| Google Ads | Cloud project + Ads API enabled, **developer token** from an MCC, OAuth client + consent screen, access level Explorer -> Basic (brand verification) -> Standard (manual audit; ~10 business days documented for Standard) | 1-4 weeks (estimate); Explorer is limited to 2,880 production ops/day |
+| CSV marketplaces | Real sample exports (see NOTES.md) | Depends on user |
+- Docker/Postgres unavailable: `PsycopgStore` SQL (upsert with `xmax = 0`, `#>>` max, csv_mappings upsert, `worker.queue.enqueue`) is UNEXECUTED; needs a run against real Postgres.
+- Shiprocket list endpoint/pagination/login-token key come from secondary sources; first live call must confirm.
+### Integration Needed
+- **Main (web/API):** Shopify OAuth install + token refresh, Meta/Google OAuth connect flows, Shiprocket credential form, CSV upload endpoint (call `connectors.csv_import.preview` / `import_csv`), a worker handler `sync_<provider>` calling `registry.build_connector(...).run_sync()` and scheduling daily incremental runs; decide the AAD used with `app.crypto.encrypt/decrypt` (connectors accept any `aad`, default `b""`); webhook receivers (Shiprocket, Shopify) are out of scope.
+- **Security decision for main:** customer hash mode. Implemented plain sha256 of normalised email/phone (as specified); HMAC with a pepper is supported (`identity_pepper`) but must then be used identically by every producer of `customer_key`. Unsalted phone hashes are brute-forceable.
+- **Ledger:** payload shapes are provider-verbatim except (a) Shopify `email`/`phone` replaced by `customerIdentity{emailSha256,phoneSha256,hmac}`; (b) CSV rows are `{row, mapped, _import}`; money in Shopify/Meta payloads is decimal strings, Google `costMicros` is a string of micros. Convert to paise in ledger.
+- No schema change needed. Optional: `integrations.sync_state jsonb` would replace the watermark derived from raw data (not requested).
