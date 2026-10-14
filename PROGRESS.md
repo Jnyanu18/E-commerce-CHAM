@@ -41,3 +41,19 @@ Verified by execution:
 - All money columns are bigint (arrays bigint[]); pincode is text; RLS is enabled on every public table except reference table `city_tiers`... (it also has RLS; only `orgs`/`city_tiers` lack `org_id` by design).
 - `claim_job()`: 6 concurrent workers claimed 6 distinct jobs; empty queue returns an all-null row. `worker/queue.py` retry/backoff verified against it (success -> done; failure -> requeued with backoff).
 Not verified / gaps found: Supabase-specific behaviour (real `auth.uid()` from JWT, PostgREST, service_role); no recovery for jobs stuck in `running` after a worker crash (needs a reaper on `locked_at`); `claim_job()` returns a null composite instead of zero rows (works, awkward); no org-creation path for users (service role only); `tier_1/unknown` migration and settlements table still pending (database agent).
+## Metrics agent (agent/metrics, 2026-10-14)
+### Done
+- `engine/metrics/`: `net_revenue`, `contribution_margin`, `expected_rto_loss`, `blended_cac`, `mer`, `platform_roas`, `contribution_after_marketing` as pure functions `metric(org_id, date_range, filters, group_by, *, repo) -> MetricResult` (contract section 3, `to_dict()` is JSON-safe).
+- Repository Protocol (`repository.py`) with `InMemoryRepository` (tests) and `PostgresRepository` (plain SELECTs, no formulas in SQL; maps legacy `tier1..3` to `tier_1..3`).
+- Registry `metrics.METRICS: dict[str, MetricSpec]` (+ `run_metric`) so API and AI tools wrap the same callables; `MetricError` (ValueError) for bad filters/group_by (map to HTTP 400).
+- Group-bys: channel, sku, category, city, city_tier, pincode, payment_method, week (Monday-start IST). Period helpers: `week_start`, `fy_range`, `fy_range_for`, `fy_label`.
+- 59 tests with hand-calculated fixtures, all passing.
+### In Progress
+- None.
+### Blocked
+- `PostgresRepository` not exercised against a live Postgres (no Docker); only a stubbed-cursor test.
+### Integration Needed
+- Main: construct a repository per request (`PostgresRepository(conn)`) and call `METRICS[name].callable(..., repo=repo)`; map `MetricError` to 400. Ratio values are `Decimal` in the dataclass and floats (4 dp) in `to_dict()`.
+- Ledger: must populate `orders.status` ('rto' for undelivered returns-to-origin), `refunds_paise`, `customer_key`, `city_tier`, `fees.source`; metrics treat `rto` orders as unrealised (no revenue/COGS), see DECISIONS.
+- Database: `orders.city_tier` check constraint still uses `tier1..tier3` (contract wants `tier_1..` + `unknown`).
+- Ad spend has no channel/SKU/city attribution, so `mer`, `blended_cac`, `contribution_after_marketing` support only `group_by=week` (platform_roas also `platform`). Proposed, not a contract change.

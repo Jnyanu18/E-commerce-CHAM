@@ -26,3 +26,10 @@
 - **Reason:** The Round 1 build briefs specify these; settling them in the shared contract before eight agents start prevents divergence.
 - **Impact:** Database agent must migrate the tier enum; ledger and metrics use the new values. Earlier launch prompts reference the old names only in passing; the contract wins.
 - **Date:** 2026-10-14 **Agent:** main
+
+## Metric layer semantics (2026-10-14, agent: metrics)
+- **Decision:** (1) Cancelled orders are excluded everywhere; orders with status `rto` contribute no gross/discounts/taxes/refunds/COGS (sale never realised) but still carry fees, shipping and RTO return cost. (2) Shipping charged to customers is not part of net_revenue. (3) `shipping cost` = fees of type `shipping`; `fees` = all other fee types; per (order, type) the source priority is api > csv > estimated and estimated use is flagged. (4) New customer = customer_key whose earliest non-cancelled order (ordered_at, id) across all channels falls in the period. (5) RTO rate = rto / (delivered+returned+rto) over the trailing 180 days, ladder category x tier x payment -> tier x payment -> payment, min 30 resolved orders; order value = gross - discounts; order category = highest-value line. (6) Order-level amounts are split across SKU/category groups by line value with largest-remainder rounding so groups sum exactly. (7) Ad-spend metrics are group-able by week only (ROAS also platform). (8) Empty/undefined results are `value: null`, status `insufficient`.
+- **Alternatives:** Count rto revenue and rely on refunds_paise; allocate ad spend to channels pro rata; ratios as floats.
+- **Reason:** Avoids overstating revenue for undelivered COD, double counting refunds, and fake attribution of spend.
+- **Impact:** Ledger must set status/refunds consistently; API/AI inherit these definitions via the registry.
+- **Date:** 2026-10-14 **Agent:** metrics
