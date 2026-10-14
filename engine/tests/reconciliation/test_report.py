@@ -5,6 +5,7 @@ from ledger.pipeline import run_transform
 from ledger.repository import InMemoryRepository
 from reconciliation.report import reconcile_snapshot
 from tests.ledger import fixtures as fx
+from transforms.common import make_settlement_item
 from tests.ledger.test_pipeline import full_repo
 
 ORG = fx.ORG
@@ -97,8 +98,9 @@ def test_cancelled_and_rto_orders_with_money_in_settlements():
 def test_orphan_settlement_surfaced():
     repo = full_repo()
     run_transform(repo, ORG)
-    repo.upsert_settlement(ORG, "amazon", None, "GHOST", {"settlement_ref": "S-9", "source": "csv_amazon", "amount_paise": 4200,
-                                                           "settled_at": "2026-09-25T00:00:00+00:00"}, {})
+    repo.upsert_settlement_item(ORG, "GHOST", make_settlement_item(
+        channel="amazon", ref="S-9", source="csv", order_channel="amazon", settled_at="2026-09-25T00:00:00+00:00",
+        net_paise=4200, gross_paise=4200, fees_paise=0, issues=[]), {})
     rep = reconcile_snapshot(ORG, START, END, repo.fetch_snapshot(ORG, START, END), as_of=AS_OF)
     [d] = find(rep, "amazon", "settlement_without_order", "GHOST")
     assert d["actual_paise"] == 4200
@@ -110,7 +112,9 @@ def test_duplicate_settlement_and_missing_sku_and_estimated_only_fees():
     repo.add_raw_record(ORG, "csv_amazon", "0", r | {"settlement_ref": "A", "settlement_amount": "90.00"})
     run_transform(repo, ORG)
     oid = repo.orders[(ORG, "amazon", "D1")]["id"]
-    repo.upsert_settlement(ORG, "amazon", oid, "D1", {"settlement_ref": "B", "source": "csv_amazon", "amount_paise": 9000, "settled_at": None}, {})
+    repo.upsert_settlement_item(ORG, "D1", make_settlement_item(
+        channel="amazon", ref="B", source="csv", order_channel="amazon", settled_at=None, net_paise=9000,
+        gross_paise=9000, fees_paise=0, issues=[]), {})
     rep = reconcile_snapshot(ORG, START, END, repo.fetch_snapshot(ORG, START, END), as_of=AS_OF)
     assert find(rep, "amazon", "possible_duplicate_settlement", "D1")
     assert find(rep, "amazon", "missing_sku", "D1")
