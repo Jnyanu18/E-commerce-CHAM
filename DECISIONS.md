@@ -19,3 +19,10 @@
 - **Reason:** Moving the primary checkout means relocating the live directory; the nested layout gives the same `worktrees/<name>` paths with no move. Nesting is safe because the folder is excluded from git.
 - **Impact:** Primary path unchanged. Can still be restructured later with `git worktree move`.
 - **Also:** Initial history created (3 commits) from the untracked work; default branch renamed `master` -> `main`.
+
+## Round 1 shared conventions (2026-10-14, agent: main)
+- **Decision:** Canonical `MetricResult` uses `value/unit/currency/period/filters/group_by/data_quality`; city tier enum is `metro|tier_1|tier_2|tier_3|unknown`; pincode is text. Recorded in `docs/CONTRACTS.md` sections 3 and 8.
+- **Alternatives:** keep the earlier `value_paise/date_range/caveats` shape and `tier1..tier3` enum.
+- **Reason:** The Round 1 build briefs specify these; settling them in the shared contract before eight agents start prevents divergence.
+- **Impact:** Database agent must migrate the tier enum; ledger and metrics use the new values. Earlier launch prompts reference the old names only in passing; the contract wins.
+- **Date:** 2026-10-14 **Agent:** main
