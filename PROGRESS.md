@@ -85,3 +85,9 @@ JWT -> `auth.uid()` via PostgREST, `service_role` as shipped by Supabase (emulat
 - Main: register `{"transform": ledger.jobs.handle_transform, "reconcile": ledger.jobs.handle_reconcile}` in the worker; `engine/seed` loader unaffected.
 - Connectors: ALL source payload shapes are ASSUMED (see module docstrings of `transforms/shopify.py`, `shiprocket.py`, `marketplace.py`). Confirm Shopify/Shiprocket fields; map each marketplace CSV onto the neutral row schema; Shiprocket `channel_order_id` is assumed to be the Shopify id, name or order_number. Raw `external_id` for CSV rows should be unique per line.
 - Metrics: GST rule in `transforms/common.py` docstring (gross is GST-inclusive, taxes_paise contained within); `__MISSING_SKU__` means COGS unknown; estimated fees are superseded by actuals (api > csv > estimated per order+type).
+
+### Metrics agent follow-up (2026-10-14): Postgres verification
+- `PostgresRepository` verified against PostgreSQL 18.1 (db `metrics_agent`, migrations 0001-0011): every metric x group_by returns results identical to `InMemoryRepository` on the same hand-calculated fixtures (IST week boundaries via timestamptz, effective-dated COGS, api>estimated fees, tier values, tenant isolation). Tests in `engine/tests/metrics/test_postgres_integration.py`, auto-skipped without `DATABASE_URL`.
+- `__MISSING_SKU__` items are treated as missing COGS (flagged, never zero silently).
+- Perf (50k orders, one quarter, group_by channel): ~15s on this machine (about 4.5s SQL fetch of ids/items/fees, rest Python row assembly). Acceptable for MVP; if it matters, push date-range-scoped fetches for child tables and vectorise in the metric layer. No new index needed (orders (org_id, channel, ordered_date_ist), fees/items by order_id already exist).
+- Legacy tier1..3 normalisation in the repository is kept (harmless).

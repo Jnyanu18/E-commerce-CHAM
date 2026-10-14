@@ -29,6 +29,7 @@ ORDER_GROUPS = ("channel", "city", "city_tier", "pincode", "payment_method", "we
 ITEM_GROUPS = ("sku", "category")
 GROUP_KEYS = ORDER_GROUPS + ITEM_GROUPS
 UNKNOWN = "unknown"
+MISSING_SKU = "__MISSING_SKU__"  # ledger convention: item whose SKU could not be resolved -> COGS unknown
 _FEE_SOURCE_PRIORITY = {"api": 0, "csv": 1, "estimated": 2}
 
 Comps = dict[str, int]
@@ -244,7 +245,7 @@ def aggregate_orders(
                 if not realised:
                     item_cogs[it.sku] = 0
                     continue
-                unit = resolver.unit_cogs(it.sku, o.ordered_date_ist)
+                unit = None if it.sku == MISSING_SKU else resolver.unit_cogs(it.sku, o.ordered_date_ist)
                 if unit is None:
                     missing_cogs.add(it.sku)
                     item_cogs[it.sku] = 0
