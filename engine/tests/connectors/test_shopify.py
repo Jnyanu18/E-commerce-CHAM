@@ -55,6 +55,24 @@ def test_query_uses_only_verified_fields_and_no_name_address():
         assert must_not not in q
 
 
+def test_query_requests_taxes_included_and_payload_keeps_it(store, sleeper):
+    assert "taxesIncluded" in build_orders_query(15, 3, 10, 5)
+    build(store, lambda r: httpx.Response(200, json=page([order(1, taxesIncluded=True)])), sleeper).run_sync("incremental")
+    assert store.raw[(ORG, "shopify_order", "gid://shopify/Order/1")]["taxesIncluded"] is True
+
+
+def test_missing_customer_hash_key_fails_at_construction(store, sleeper, monkeypatch):
+    monkeypatch.delenv("CUSTOMER_HASH_KEY", raising=False)
+    calls = []
+    with pytest.raises(ConfigError, match="CUSTOMER_HASH_KEY"):
+        build(store, lambda r: calls.append(r) or httpx.Response(200), sleeper)
+    assert calls == []  # no request was made
+    monkeypatch.setenv("CUSTOMER_HASH_KEY", "short")
+    with pytest.raises(ConfigError):
+        build(store, lambda r: httpx.Response(200), sleeper)
+    build(store, lambda r: httpx.Response(200), sleeper, hash_key="explicit-key-0123456789")  # explicit key ok
+
+
 def test_bad_shop_domain_rejected(store, sleeper):
     integ = make_integration(store, "shopify", "evil.example.com")
     with pytest.raises(ConfigError):
