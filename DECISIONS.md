@@ -51,3 +51,10 @@
 - **Decision:** Shopify email/phone are fetched only to compute sha256 of the normalised value and are dropped from the stored payload (added as `customerIdentity`); names/street addresses are never requested; city, provinceCode, zip, country are kept (needed for city tier/pincode). **Alternatives:** store verbatim; store nothing. **Reason:** data minimisation (Shopify protected-customer-data Level 1 principle 1) while keeping `customer_key` for blended CAC. **Impact:** deviates from "verbatim payload" for two fields; contract note in PROGRESS.md. Unsalted hashes are weak for phones (see Integration Needed). **Date:** 2026-10-14 **Agent:** connectors
 - **Decision:** Pull ad-platform data with a trailing 14-day re-pull; raw rows are upserted so revisions overwrite. **Alternatives:** append snapshots. **Reason:** attribution/cost revisions after the fact; `(org_id, source, external_id)` uniqueness. **Impact:** raw keeps only the latest version of each day row. **Date:** 2026-10-14 **Agent:** connectors
 - **Decision:** CSV import is all-or-nothing by default (`allow_partial=False`). **Alternatives:** import valid rows always. **Reason:** avoids silent partial books; re-upload of a corrected file is idempotent. **Impact:** UI should show the row-level report. **Date:** 2026-10-14 **Agent:** connectors
+
+## Ledger customer_key delegates to app.identity (2026-10-15, agent: ledger)
+- **Decision:** `transforms.common.customer_key` performs no hashing. Precomputed `customerIdentity{emailHash, phoneHash}` -> `app.identity.customer_key_from_hashes`; raw email/phone (CSV) -> `app.identity.customer_key`. Legacy `emailSha256/phoneSha256` keys are treated as absent.
+- **Alternatives:** keep ledger-local sha256 with last-10-digit phone logic.
+- **Reason:** one canonical keyed HMAC so ledger keys join with connector keys; plain sha256 of phones is brute-forceable.
+- **Impact:** requires `CUSTOMER_HASH_KEY` when raw email/phone are hashed (tests get it from `engine/tests/conftest.py`). Changing the key changes every customer_key.
+- **Date:** 2026-10-15 **Agent:** ledger

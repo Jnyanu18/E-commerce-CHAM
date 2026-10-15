@@ -37,12 +37,57 @@ def test_parse_ts_to_utc_and_naive_rules():
         parse_ts("10/09/2026 ten")
 
 
-def test_customer_key_is_hash_never_raw_and_normalised():
+def test_customer_key_delegates_to_app_identity_no_local_hashing():
+    from app import identity
+    # raw email path (CSV-style): same value as the canonical implementation, any case/whitespace
     k = customer_key(" Asha.Rao@Example.com ", None)
-    assert k == hashlib.sha256(b"asha.rao@example.com").hexdigest()
-    assert "asha" not in k
-    assert customer_key(None, "+91 98765-43210") == customer_key(None, "09876543210")
+    assert k == identity.hash_email("asha.rao@example.com") == identity.customer_key("ASHA.RAO@example.com")
+    assert "asha" not in k and len(k) == 64
+    # not the old plain sha256
+    assert k != hashlib.sha256(b"asha.rao@example.com").hexdigest()
+    # phone-only gets the phone hash, with the canonical normalisation (+91 / leading 0 variants join)
+    pk = customer_key(None, "+91 98765-43210")
+    assert pk == identity.hash_phone("9876543210") == customer_key(None, "09876543210")
     assert customer_key(None, None) is None and customer_key("not-an-email", "123") is None
+
+
+def test_customer_key_prefers_precomputed_hashes_and_ignores_legacy_names():
+    from app import identity
+    eh, ph = identity.hash_email("a@b.co"), identity.hash_phone("9876543210")
+    assert customer_key(identity={"emailHash": eh, "phoneHash": ph}) == eh
+    assert customer_key(identity={"emailHash": None, "phoneHash": ph}) == ph
+    # precomputed hashes win over raw values
+    assert customer_key("other@x.com", None, identity={"emailHash": eh}) == eh
+    # legacy sha256 key names are NOT valid: treated as absent, falls back to raw (here: nothing)
+    assert customer_key(identity={"emailSha256": "ab" * 32, "phoneSha256": "cd" * 32}) is None
+    assert customer_key("a@b.co", None, identity={"emailSha256": "ab" * 32}) == eh
+
+
+def test_shopify_customer_key_matches_canonical_identity():
+    from app import identity
+    b = transform_shopify_order(ORG, fx.SHOPIFY_NORMAL)                      # raw email present
+    assert b.order["customer_key"] == identity.hash_email("asha.rao@example.com")
+    p = copy.deepcopy(fx.SHOPIFY_NORMAL)                                      # connector-style: hashes only
+    p.pop("email"); p.pop("phone")
+    p["customerIdentity"] = {"emailHash": identity.hash_email("asha.rao@example.com"), "phoneHash": identity.hash_phone("9876543210")}
+    assert transform_shopify_order(ORG, p).order["customer_key"] == identity.hash_email("asha.rao@example.com")
+    ph = copy.deepcopy(p)                                                     # phone-only order
+    ph["customerIdentity"] = {"emailHash": None, "phoneHash": identity.hash_phone("98765 43210")}
+    assert transform_shopify_order(ORG, ph).order["customer_key"] == identity.hash_phone("9876543210")
+    raw_phone = copy.deepcopy(fx.SHOPIFY_NORMAL)
+    raw_phone["email"] = None
+    assert transform_shopify_order(ORG, raw_phone).order["customer_key"] == identity.hash_phone("+91 98765 43210")
+    legacy = copy.deepcopy(p)
+    legacy["customerIdentity"] = {"emailSha256": "ab" * 32}
+    assert transform_shopify_order(ORG, legacy).order["customer_key"] is None
+
+
+def test_marketplace_customer_key_uses_canonical_identity():
+    from app import identity
+    [b] = transform_marketplace_rows(ORG, "amazon", _rows([fx.mkt_row("K1", "A", "10.00", customer_email="X@Y.com")]))
+    assert b.order["customer_key"] == identity.hash_email("x@y.com")
+    [b] = transform_marketplace_rows(ORG, "amazon", _rows([fx.mkt_row("K2", "A", "10.00", customer_phone="9876543210")]))
+    assert b.order["customer_key"] == identity.hash_phone("9876543210")
 
 
 def test_pincode_and_city_tier():

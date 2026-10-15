@@ -100,7 +100,8 @@ def transform_shopify_order(org_id: str, payload: dict[str, Any], *, raw_externa
     order = {
         "ordered_at": ts_iso(ordered_at),
         "customer_key": customer_key(payload.get("email") or cust.get("email"),
-                                     payload.get("phone") or cust.get("phone") or addr.get("phone")),
+                                     payload.get("phone") or cust.get("phone") or addr.get("phone"),
+                                     identity=payload.get("customerIdentity")),
         "city": city, "city_tier": city_tier(city, city_tiers), "pincode": pin,
         "payment_method": _payment_method(payload, issues), "status": status,
         "gross_revenue_paise": gross, "discounts_paise": discounts, "taxes_paise": tax,
