@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import timedelta
 
-from .core import GROUP_KEYS, ITEM_FILTERS, ORDER_FILTERS, aggregate_orders, load_orders, order_field, primary_category, validate_request
+from .core import gc_paused, GROUP_KEYS, ITEM_FILTERS, ORDER_FILTERS, aggregate_orders, load_orders, order_field, primary_category, validate_request
 from .repository import MetricsRepository, normalise_tier
 from .result import NO_ORDERS, make_result
 from .types import DateRange, Filters, MetricResult, normalise_filters
@@ -40,6 +40,7 @@ def _segment_keys(category: str, tier: str, pm: str):
     return [(category, tier, pm), (tier, pm), (pm,)]
 
 
+@gc_paused
 def expected_rto_loss(
     org_id: str, date_range, filters: Filters | None = None, group_by: str | None = None, *, repo: MetricsRepository,
     min_history: int = MIN_HISTORY, lookback_days: int = LOOKBACK_DAYS,
@@ -63,8 +64,10 @@ def expected_rto_loss(
         seen: set[str] = set()
         hist = [o for o in hist if not (o.id in seen or seen.add(o.id))]
         items: dict[str, list] = defaultdict(list)
-        for it in repo.items(org_id, [o.id for o in hist] + [o.id for o in at_risk]):
-            items[it.order_id].append(it)
+        wanted = {o.id for o in hist} | {o.id for o in at_risk}
+        for it in repo.items_in_range(org_id, lo, dr.end):
+            if it.order_id in wanted:
+                items[it.order_id].append(it)
         for o in hist:
             cat = primary_category(items.get(o.id, []), category_of)
             for lvl, key in enumerate(_segment_keys(cat, normalise_tier(o.city_tier), o.payment_method)):
@@ -98,7 +101,7 @@ def expected_rto_loss(
     if unrated:
         issues.append(f"rto_history_insufficient: {unrated} at-risk orders have no segment with >= {min_history} resolved orders in the last {lookback_days} days")
 
-    agg = aggregate_orders(repo, org_id, orders, nf, group_by, set(), issues, extra_order_comps=losses)
+    agg = aggregate_orders(repo, org_id, dr, orders, nf, group_by, set(), issues, extra_order_comps=losses)
     if not orders:
         issues.append(NO_ORDERS)
     value = None if (unrated or not orders) else agg.totals.get("rto_loss", 0)
