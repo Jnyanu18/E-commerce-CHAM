@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "@/lib/api/errors";
 import { buildMetricUrl, createHttpClient, type FetchLike } from "@/lib/api/http";
-import { useMocksFromEnv } from "@/lib/api";
+import { isMockMode } from "@/lib/api";
 import { parseMetricResult } from "@/lib/api/validate";
 import { createMockApi, MOCK_ORG_ID } from "@/lib/mocks";
 import { mockMetric, periodFactor } from "@/lib/mocks/metrics";
@@ -135,10 +135,10 @@ describe("mock layer", () => {
 
 describe("env flag", () => {
   it("defaults to mocks and honours explicit false", () => {
-    expect(useMocksFromEnv(undefined)).toBe(true);
-    expect(useMocksFromEnv("")).toBe(true);
-    expect(useMocksFromEnv("true")).toBe(true);
-    expect(useMocksFromEnv("false")).toBe(false);
-    expect(useMocksFromEnv("FALSE")).toBe(false);
+    expect(isMockMode(undefined)).toBe(true);
+    expect(isMockMode("")).toBe(true);
+    expect(isMockMode("true")).toBe(true);
+    expect(isMockMode("false")).toBe(false);
+    expect(isMockMode("FALSE")).toBe(false);
   });
 });

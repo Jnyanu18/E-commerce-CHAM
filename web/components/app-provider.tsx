@@ -67,7 +67,9 @@ export function useAsync<T>(loader: (() => Promise<T>) | null, key: string): Asy
   const [state, setState] = useState<AsyncState<T>>({ status: "loading", data: null, error: null });
   const [nonce, setNonce] = useState(0);
   const loaderRef = useRef(loader);
-  loaderRef.current = loader;
+  useEffect(() => {
+    loaderRef.current = loader;
+  });
   const enabled = loader !== null;
 
   useEffect(() => {

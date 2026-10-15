@@ -6,7 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { BarChart3, Brain, Coins, LayoutDashboard, LogOut, Megaphone, Plug } from "lucide-react";
 import { AppProvider, useApp, type PresetDays } from "@/components/app-provider";
 import { Badge, Button } from "@/components/ui/primitives";
-import { useMocksFromEnv } from "@/lib/api";
+import { isMockMode } from "@/lib/api";
 import { formatCalendarDate } from "@/lib/format";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -30,7 +30,7 @@ function useSession() {
   const router = useRouter();
   const [email, setEmail] = useState<string | null>(null);
   const [checked, setChecked] = useState(false);
-  const live = !useMocksFromEnv();
+  const live = !isMockMode();
 
   useEffect(() => {
     const sb = getSupabase();
@@ -84,12 +84,13 @@ function PeriodSelector() {
 
 function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { api, orgError } = useApp();
   const { email, blocked } = useSession();
 
   async function signOut() {
     await getSupabase()?.auth.signOut();
-    window.location.href = "/login";
+    router.replace("/login");
   }
 
   return (

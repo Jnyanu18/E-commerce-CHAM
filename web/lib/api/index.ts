@@ -9,7 +9,7 @@ export * from "./types";
 export { ApiError } from "./errors";
 
 /** Mocks are on unless explicitly disabled. Default true until the backend exists. */
-export function useMocksFromEnv(value: string | undefined = process.env.NEXT_PUBLIC_USE_MOCKS): boolean {
+export function isMockMode(value: string | undefined = process.env.NEXT_PUBLIC_USE_MOCKS): boolean {
   return value === undefined || value === "" ? true : value.toLowerCase() !== "false";
 }
 
@@ -28,6 +28,6 @@ export function createLiveApi(): Api {
 
 let cached: Api | undefined;
 export function getApi(): Api {
-  if (!cached) cached = useMocksFromEnv() ? createMockApi() : createLiveApi();
+  if (!cached) cached = isMockMode() ? createMockApi() : createLiveApi();
   return cached;
 }
