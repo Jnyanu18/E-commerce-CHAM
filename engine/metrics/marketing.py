@@ -28,6 +28,11 @@ ROAS_DEF = (
     "platform_roas = platform-reported conversion revenue / ad spend, over ad rows that report revenue. "
     "platform-reported, not causal: it reflects each ad platform's own attribution and must not be used as incremental return."
 )
+AD_SPEND_DEF = "ad_spend = sum of ad_spend_daily.spend_paise (meta + google, all campaigns) for IST dates in the period."
+PLATFORM_REVENUE_DEF = (
+    "platform_reported_revenue = sum of ad_spend_daily.platform_reported_revenue_paise. platform-reported, not causal: "
+    "each ad platform's own attribution, not incremental revenue. Rows with null reported revenue are excluded and flagged."
+)
 CAM_DEF = "contribution_after_marketing = contribution_margin - total ad spend (meta + google) for the same period."
 
 
@@ -37,6 +42,7 @@ class _Spend:
         self.rev = 0
         self.rev_spend = 0  # spend of rows that report revenue
         self.rows = 0
+        self.rev_rows = 0  # rows that report revenue
 
 
 def _spend_week_or_platform(row, group_by):
@@ -67,6 +73,7 @@ def load_spend(repo: MetricsRepository, org_id: str, dr: DateRange, nf, group_by
             if r.platform_reported_revenue_paise is not None:
                 b.rev += r.platform_reported_revenue_paise
                 b.rev_spend += r.spend_paise
+                b.rev_rows += 1
     if dup:
         issues.append(f"duplicate_ad_spend_rows_ignored: {dup}")
     if total.rows:
