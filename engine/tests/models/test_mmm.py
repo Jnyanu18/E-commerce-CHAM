@@ -148,7 +148,6 @@ def test_descriptive_fallback_empty_and_basic():
     assert descriptive_fallback(make(20))["note"].startswith("Association")
 
 
-@pytest.mark.slow
 def test_pymc_recovers_planted_response():
     pytest.importorskip("pymc")
     pytest.importorskip("arviz")

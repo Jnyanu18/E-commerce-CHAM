@@ -58,6 +58,8 @@ class MetricLayerSource:
     def series(self, metric: str, org_id: str, start: date, end: date, grain: str = "day") -> Series:
         if metric in self.extra:
             return self.extra[metric](org_id, start, end, grain)
+        if grain not in ("day", "week"):
+            raise ValueError(f"unsupported grain {grain!r}; use 'day' or 'week'")
         from metrics import METRICS  # lazy: keeps this module importable without the metric layer
 
         if metric not in METRICS:
