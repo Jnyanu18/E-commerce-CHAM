@@ -54,16 +54,29 @@ def _check_curve(c: Mapping[str, Any]) -> None:
 
 
 def persist_mmm_result(repo: IntelligenceRepo, org_id: str, result: Mapping[str, Any]) -> str:
-    """Write a model_runs row for ANY run_mmm outcome. Curves are written only when the run passed the gates."""
+    """Write a model_runs row for ANY run_mmm outcome. Curves are written only when the run passed the gates.
+
+    diagnostics shape (read by app.ai_backends.DbModelSource): top-level `verdict` ("OK" | "WEAK" | "INSUFFICIENT_DATA"),
+    `reason`, and r_hat_max / ess_bulk_min / divergences / ppc_coverage_80; gate detail lives under `gate`.
+    """
     if result.get("status") == "ok":
+        d = result["diagnostics"]
+        diag = {**d, "divergences": d.get("n_divergences", 0), "verdict": "OK",
+                "reason": "all diagnostics passed (R-hat, ESS, divergences, posterior-predictive coverage)",
+                "contributions": result["contributions"]}
         rid = repo.save_model_run(org_id, "mmm_v0", result["data_start"], result["data_end"], jsonable(result["params"]),
-                                  jsonable({**result["diagnostics"], "contributions": result["contributions"],
-                                            "verdict": {"status": "ok"}}), True)
+                                  jsonable(diag), True)
         repo.save_curves(org_id, rid, result["curves"])
         return rid
-    diag = {k: v for k, v in result.items() if k in ("status", "reason", "fallback", "stage", "details", "diagnostics",
-                                                      "failing_channels", "descriptive")}
-    return repo.save_model_run(org_id, "mmm_v0", None, None, {"model": "mmm_v0"}, jsonable({"verdict": diag}), False)
+    gate = {k: v for k, v in result.items() if k in ("stage", "details", "diagnostics", "failing_channels", "descriptive", "fallback")}
+    diag = {"verdict": "INSUFFICIENT_DATA", "reason": result.get("reason", "data insufficient"), "fallback": result.get("fallback", "descriptive"),
+            "gate": gate}
+    for k in ("r_hat_max", "ess_bulk_min", "ppc_coverage_80"):
+        if k in (result.get("diagnostics") or {}):
+            diag[k] = result["diagnostics"][k]
+    if "n_divergences" in (result.get("diagnostics") or {}):
+        diag["divergences"] = result["diagnostics"]["n_divergences"]
+    return repo.save_model_run(org_id, "mmm_v0", None, None, {"model": "mmm_v0"}, jsonable(diag), False)
 
 
 class InMemoryIntelRepo:

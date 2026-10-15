@@ -38,14 +38,14 @@ def test_mmm_experiment_recommendation_roundtrip(conn):
     repo = PsycopgIntelRepo(conn)
     ok = run_mmm(make(78), fit=lambda d, c, cfg, cal: _planted_draws())
     rid = persist_mmm_result(repo, ORG, ok)
-    row = conn.execute("select sufficient_data, model_type, diagnostics->'verdict'->>'status', data_start from model_runs where id=%s", (rid,)).fetchone()
-    assert row[0] is True and row[1] == "mmm_v0" and row[2] == "ok" and row[3] is not None
+    row = conn.execute("select sufficient_data, model_type, diagnostics->>'verdict', data_start from model_runs where id=%s", (rid,)).fetchone()
+    assert row[0] is True and row[1] == "mmm_v0" and row[2] == "OK" and row[3] is not None
     cur = conn.execute("select channel, array_length(spend_grid_paise,1), pg_typeof(spend_grid_paise)::text, lower_paise[2] <= expected_revenue_paise[2] "
                        "from channel_response_curves where model_run_id=%s order by channel", (rid,)).fetchall()
     assert [c[0] for c in cur] == ["google", "meta"] and all(c[1] > 5 and c[2] == "bigint[]" and c[3] for c in cur)
 
     bad = persist_mmm_result(repo, ORG, run_mmm(make(30)))
-    r2 = conn.execute("select sufficient_data, diagnostics->'verdict'->>'reason', diagnostics->'verdict'->>'fallback' from model_runs where id=%s", (bad,)).fetchone()
+    r2 = conn.execute("select sufficient_data, diagnostics->>'reason', diagnostics->>'fallback' from model_runs where id=%s", (bad,)).fetchone()
     assert r2[0] is False and "30 weeks" in r2[1] and r2[2] == "descriptive"
     assert conn.execute("select count(*) from channel_response_curves where model_run_id=%s", (bad,)).fetchone()[0] == 0
     with pytest.raises(ValueError):
