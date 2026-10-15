@@ -2,7 +2,7 @@
 
 import { useMetrics, type MetricSpec } from "@/components/app-provider";
 import { PageHeader } from "@/components/app-shell";
-import { GroupBreakdown, KpiCard } from "@/components/metric-views";
+import { GroupBreakdown, KpiCard, TrendChart } from "@/components/metric-views";
 import { Boundary, DataQualityNotice } from "@/components/states";
 import { percentChange } from "@/lib/presentation";
 
@@ -19,6 +19,11 @@ const SPECS: MetricSpec[] = [
   ...KPI_METRICS.map((k) => ({ metric: k.metric, window: "week" as const })),
   ...KPI_METRICS.map((k) => ({ metric: k.metric, window: "prevWeek" as const })),
   { metric: "net_revenue", groupBy: "channel" },
+  { metric: "net_revenue", groupBy: "day" },
+  { metric: "contribution_margin", groupBy: "day" },
+  { metric: "orders" },
+  { metric: "aov" },
+  { metric: "sessions" },
 ];
 
 export default function OverviewPage() {
@@ -41,6 +46,12 @@ export default function OverviewPage() {
                 />
               ))}
             </section>
+            <section aria-label="Order volume" className="grid gap-4 sm:grid-cols-3">
+              <KpiCard title="Orders" result={r[15]} />
+              <KpiCard title="Average order value" result={r[16]} />
+              <KpiCard title="Sessions" result={r[17]} />
+            </section>
+            <TrendChart title="Daily trend" series={[{ name: "Net revenue", result: r[13] }, { name: "Contribution margin", result: r[14] }]} />
             <GroupBreakdown title="Net revenue by channel" result={r[12]} keyLabel="Channel" />
           </div>
         )}

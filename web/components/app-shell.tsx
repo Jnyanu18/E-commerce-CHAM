@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { BarChart3, Brain, Coins, LayoutDashboard, LogOut, Megaphone, Plug } from "lucide-react";
+import { BarChart3, Brain, Coins, LayoutDashboard, LogOut, Megaphone, Plug, ShieldCheck } from "lucide-react";
 import { AppProvider, useApp, type PresetDays } from "@/components/app-provider";
 import { Badge, Button } from "@/components/ui/primitives";
 import { isMockMode } from "@/lib/api";
@@ -19,6 +19,7 @@ const NAV = [
   { href: "/intelligence/brief", label: "AI brief", icon: Brain },
   { href: "/cogs", label: "COGS editor", icon: Coins },
   { href: "/integrations", label: "Integrations", icon: Plug },
+  { href: "/data-quality", label: "Data quality", icon: ShieldCheck },
 ];
 
 function isActive(pathname: string, href: string): boolean {
