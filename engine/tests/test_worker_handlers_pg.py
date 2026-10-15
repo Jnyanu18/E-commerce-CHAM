@@ -109,3 +109,21 @@ def test_sync_handler_unknown_integration_is_a_visible_failure(conn):
     drain(conn)
     st, err = conn.execute("select status, last_error from jobs where kind='sync'").fetchone()
     assert st == "queued" and "not found" in err
+
+
+def test_monday_pipeline_enqueues_in_dependency_order_by_hour(conn):
+    org, _ = load(conn, name="pipeline", weeks=2)
+    enqueue(conn, "transform", org, {}); drain(conn)
+    conn.execute("delete from jobs")
+    kinds = lambda: [r[0] for r in conn.execute("select kind from jobs where org_id=%s and kind in ('mmm_run','detect_anomalies','weekly_brief') order by id", (org,)).fetchall()]
+    at = lambda h: datetime(2026, 10, 12, h, 0, tzinfo=UTC).replace(tzinfo=UTC) - __import__("datetime").timedelta(hours=5, minutes=30)  # IST hour h
+    enqueue_due(conn, at(5));  assert kinds() == []
+    enqueue_due(conn, at(6));  assert kinds() == ["mmm_run"]
+    enqueue_due(conn, at(7));  assert kinds() == ["mmm_run", "detect_anomalies"]
+    enqueue_due(conn, at(9));  assert kinds() == ["mmm_run", "detect_anomalies", "weekly_brief"]
+    enqueue_due(conn, at(10)); assert len(kinds()) == 3  # idempotent
+
+
+def test_all_job_kinds_have_handlers():
+    from worker.main import handlers
+    assert {"transform", "reconcile", "sync", "weekly_brief", "detect_anomalies", "mmm_run"} <= set(handlers())

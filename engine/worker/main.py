@@ -11,6 +11,7 @@ import time
 import psycopg
 
 from app.config import settings
+from intelligence.jobs import handle_detect_anomalies, handle_mmm_run
 from ledger.jobs import handle_reconcile, handle_transform
 
 from .handlers import handle_sync, handle_weekly_brief
@@ -22,7 +23,8 @@ log = logging.getLogger("worker")
 
 def handlers() -> dict[str, Handler]:
     return {"transform": handle_transform, "reconcile": handle_reconcile, "sync": handle_sync,
-            "weekly_brief": handle_weekly_brief}
+            "weekly_brief": handle_weekly_brief, "detect_anomalies": handle_detect_anomalies,
+            "mmm_run": handle_mmm_run}
 
 
 def drain(conn: psycopg.Connection, hs: dict[str, Handler] | None = None, max_jobs: int = 1000) -> int:
