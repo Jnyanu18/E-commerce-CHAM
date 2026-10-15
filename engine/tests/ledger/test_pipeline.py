@@ -166,10 +166,10 @@ def test_actual_fee_supersedes_estimate_and_precedence_api_over_csv():
 def test_bad_records_are_collected_not_fatal_and_unknown_sources_reported():
     repo = seeded(("shopify_order", "5001", fx.SHOPIFY_NORMAL), ("shopify_order", "bad", {"id": "x"}),
                   ("shiprocket_shipment", "bad2", {"id": 3}), ("csv_amazon", "bad3", {"sku": "x"}),
-                  ("meta_insights", "m1", {"spend": 1}))
+                  ("tiktok_ads", "m1", {"spend": 1}))
     s = run_transform(repo, ORG)
     assert len(repo.orders) == 1 and len(s.errors) == 3
-    assert s.skipped_sources == {"meta_insights": 1}
+    assert s.skipped_sources == {"tiktok_ads": 1}
 
 
 def test_ambiguous_and_unresolved_shipment_references():

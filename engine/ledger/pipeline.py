@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from transforms.common import OrderBundle, TransformError
+from transforms.ads import GOOGLE_SOURCE, META_SOURCE, find_ad_spend_gaps, transform_google_ads_row, transform_meta_insights
 from transforms.fees import estimate_fees
 from transforms.marketplace import MARKETPLACES, channel_from_source, transform_marketplace_rows
 from transforms.shiprocket import transform_shiprocket_shipment
@@ -19,7 +20,7 @@ from transforms.shopify import order_external_id, shopify_ref_keys, transform_sh
 
 from .repository import Repository
 
-KNOWN_SOURCES = ("shopify_order", "shiprocket_shipment") + tuple(f"csv_{m}" for m in MARKETPLACES)
+KNOWN_SOURCES = ("shopify_order", "shiprocket_shipment", META_SOURCE, GOOGLE_SOURCE) + tuple(f"csv_{m}" for m in MARKETPLACES)
 
 
 @dataclass
@@ -33,6 +34,9 @@ class TransformSummary:
     errors: list[dict] = field(default_factory=list)
     issues: list[dict] = field(default_factory=list)
     skipped_sources: dict[str, int] = field(default_factory=dict)
+    ad_spend_inserted: int = 0
+    ad_spend_updated: int = 0
+    ad_spend_missing: list[dict] = field(default_factory=list)   # {platform, dates}: days inside the data range with no row
 
     def as_dict(self) -> dict:
         return dict(self.__dict__)
@@ -98,6 +102,7 @@ def run_transform(repo: Repository, org_id: str, *, sources: list[str] | None = 
             summary.skipped_sources[r["source"]] = summary.skipped_sources.get(r["source"], 0) + 1
     tiers = repo.load_city_tiers()
     bundles: list[OrderBundle] = []
+    ads = []
 
     def guarded(raw_ref, fn):
         try:
@@ -114,6 +119,11 @@ def run_transform(repo: Repository, org_id: str, *, sources: list[str] | None = 
             b = guarded(ref, lambda: transform_shopify_order(org_id, p, raw_external_id=r["external_id"], city_tiers=tiers))
             if b:
                 bundles.append(b)
+        elif src in (META_SOURCE, GOOGLE_SOURCE):
+            fn = transform_meta_insights if src == META_SOURCE else transform_google_ads_row
+            ab = guarded(ref, lambda: fn(org_id, p, raw_external_id=r["external_id"]))
+            if ab:
+                ads.append(ab)
         elif src == "shiprocket_shipment":
             b = guarded(ref, lambda: transform_shiprocket_shipment(org_id, p, raw_external_id=r["external_id"]))
             if b:
@@ -143,4 +153,18 @@ def run_transform(repo: Repository, org_id: str, *, sources: list[str] | None = 
     # full orders first so shipments arriving in the same batch can link; the result is order-independent anyway
     for b in sorted(bundles, key=lambda x: x.partial):
         apply_bundle(repo, b, summary, fee_rates)
+    for ab in ads:
+        for row in ab.rows:
+            if repo.upsert_ad_spend(org_id, row) == "inserted":
+                summary.ad_spend_inserted += 1
+            else:
+                summary.ad_spend_updated += 1
+        for i in ab.issues:
+            summary.issues.append({"raw": ab.raw_ref, "order": None, "issue": i})
+    if ads:  # report-only: never invents rows. Zero-spend days legitimately have none, so this is informational.
+        for platform, days in sorted(repo.ad_spend_dates(org_id).items()):
+            gaps = find_ad_spend_gaps(days)
+            if gaps:
+                summary.ad_spend_missing.append({"platform": platform, "issue": "ad_spend_missing",
+                                                 "dates": [d.isoformat() for d in gaps]})
     return summary
