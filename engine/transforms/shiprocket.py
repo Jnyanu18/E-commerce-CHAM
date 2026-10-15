@@ -1,6 +1,7 @@
 """Shiprocket shipment -> PARTIAL canonical bundle (status patch, shipping fees, RTO/return cost, COD remittance).
 
-ASSUMED PAYLOAD SHAPE (UNVERIFIED; connectors agent must confirm against Shiprocket's current API docs):
+ASSUMED PAYLOAD SHAPE - FIELD NAMES UNCONFIRMED (the connectors agent could not verify them against official docs;
+a Go SDK suggests ``order_id``/``channel_id`` rather than ``channel_order_id``). Needs a real sample response:
 ``id`` or ``shipment_id``, ``awb`` (or ``awb_code``), ``channel_order_id`` (reference to the merchant order:
 assumed to be the Shopify order id, name or order_number), ``status`` (free text, e.g. "DELIVERED",
 "RTO DELIVERED", "IN TRANSIT"), ``is_return`` (bool; reverse shipment for a customer return),
@@ -73,13 +74,17 @@ def transform_shiprocket_shipment(org_id: str, payload: dict[str, Any], *, raw_e
     if sid in (None, ""):
         raise TransformError("shiprocket shipment without id/awb")
     if ref in (None, ""):
-        raise TransformError(f"shiprocket shipment {sid}: channel_order_id missing, cannot link to an order")
+        hint = " (payload has order_id/channel_id: field names unconfirmed, needs a real sample)" if (
+            payload.get("order_id") or payload.get("channel_id")) else ""
+        raise TransformError(f"shiprocket shipment {sid}: channel_order_id missing, cannot link to an order{hint}")
     issues: list[str] = []
     is_return = bool(payload.get("is_return"))
     status = map_status(payload.get("status"), is_return)
     if status is None and payload.get("status"):
         issues.append(f"unmapped_shipment_status: {payload.get('status')!r}")
 
+    if not any(k in payload for k in ("freight_charges", "cod_charges", "rto_charges")):
+        issues.append("shiprocket_cost_fields_absent: freight/cod/rto charge fields not found (names unconfirmed); no cost recorded")
     when = parse_ts(payload.get("delivered_date") or payload.get("updated_at"), field_name="shipment date")
     freight = to_paise(payload.get("freight_charges"), field_name="freight_charges", default=None)
     cod_ch = to_paise(payload.get("cod_charges"), field_name="cod_charges", default=None)

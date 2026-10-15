@@ -65,21 +65,15 @@ def test_customer_key_prefers_precomputed_hashes_and_ignores_legacy_names():
 
 def test_shopify_customer_key_matches_canonical_identity():
     from app import identity
-    b = transform_shopify_order(ORG, fx.SHOPIFY_NORMAL)                      # raw email present
+    b = transform_shopify_order(ORG, fx.SHOPIFY_NORMAL)                      # connector-style hashes
     assert b.order["customer_key"] == identity.hash_email("asha.rao@example.com")
-    p = copy.deepcopy(fx.SHOPIFY_NORMAL)                                      # connector-style: hashes only
-    p.pop("email"); p.pop("phone")
-    p["customerIdentity"] = {"emailHash": identity.hash_email("asha.rao@example.com"), "phoneHash": identity.hash_phone("9876543210")}
-    assert transform_shopify_order(ORG, p).order["customer_key"] == identity.hash_email("asha.rao@example.com")
-    ph = copy.deepcopy(p)                                                     # phone-only order
+    ph = copy.deepcopy(fx.SHOPIFY_NORMAL)                                     # phone-only order
     ph["customerIdentity"] = {"emailHash": None, "phoneHash": identity.hash_phone("98765 43210")}
     assert transform_shopify_order(ORG, ph).order["customer_key"] == identity.hash_phone("9876543210")
-    raw_phone = copy.deepcopy(fx.SHOPIFY_NORMAL)
-    raw_phone["email"] = None
-    assert transform_shopify_order(ORG, raw_phone).order["customer_key"] == identity.hash_phone("+91 98765 43210")
-    legacy = copy.deepcopy(p)
+    legacy = copy.deepcopy(fx.SHOPIFY_NORMAL)
     legacy["customerIdentity"] = {"emailSha256": "ab" * 32}
-    assert transform_shopify_order(ORG, legacy).order["customer_key"] is None
+    b = transform_shopify_order(ORG, legacy)
+    assert b.order["customer_key"] is None and any(i.startswith("customer_key_missing") for i in b.issues)
 
 
 def test_marketplace_customer_key_uses_canonical_identity():
@@ -143,7 +137,6 @@ def test_shopify_gst_exclusive_rule_uplifts_gross():
 
 def test_shopify_gst_flag_absent_assumes_inclusive_and_says_so():
     p = copy.deepcopy(fx.SHOPIFY_COD)
-    del p["taxes_included"]
     b = transform_shopify_order(ORG, p)
     assert b.order["gross_revenue_paise"] == 119900
     assert any(i.startswith("taxes_included_unknown") for i in b.issues)
@@ -165,7 +158,7 @@ def test_shopify_missing_sku_is_surfaced_not_dropped():
 def test_shopify_cancelled_and_status_mapping():
     assert transform_shopify_order(ORG, fx.SHOPIFY_CANCELLED).order["status"] == "cancelled"
     p = copy.deepcopy(fx.SHOPIFY_NORMAL)
-    p["fulfillment_status"] = None
+    p["displayFulfillmentStatus"] = "UNFULFILLED"
     assert transform_shopify_order(ORG, p).order["status"] == "placed"
 
 
@@ -175,22 +168,23 @@ def test_shopify_invalid_and_boundary_inputs():
     with pytest.raises(TransformError):
         transform_shopify_order(ORG, {"id": 1})  # no created_at
     bad = copy.deepcopy(fx.SHOPIFY_NORMAL)
-    bad["total_tax"] = "lots"
+    bad["totalTaxSet"]["shopMoney"]["amount"] = "lots"
     with pytest.raises(TransformError):
         transform_shopify_order(ORG, bad)
     empty = copy.deepcopy(fx.SHOPIFY_NORMAL)
-    empty["line_items"] = []
+    empty["lineItems"]["nodes"] = []
     b = transform_shopify_order(ORG, empty)
     assert b.items == [] and "no_line_items" in b.issues
     z = copy.deepcopy(fx.SHOPIFY_NORMAL)
-    z["line_items"][0]["quantity"] = 0
+    z["lineItems"]["nodes"][0]["quantity"] = 0
+    z["lineItems"]["nodes"][0]["currentQuantity"] = 0
     assert "zero_qty_line_skipped" in transform_shopify_order(ORG, z).issues
 
 
 def test_shopify_total_mismatch_and_bad_pincode_are_flagged():
     p = copy.deepcopy(fx.SHOPIFY_NORMAL)
-    p["total_price"] = "1000.00"
-    p["shipping_address"]["zip"] = "40001"
+    p["totalPriceSet"]["shopMoney"]["amount"] = "1000.00"
+    p["shippingAddress"]["zip"] = "40001"
     b = transform_shopify_order(ORG, p)
     assert any(i.startswith("total_mismatch") for i in b.issues)
     assert b.order["pincode"] is None and any(i.startswith("invalid_pincode") for i in b.issues)
@@ -319,3 +313,63 @@ def test_shipment_status_enum_mapping():
     assert shipment_status("Delivered", False) == "delivered" and shipment_status("IN TRANSIT", False) == "in_transit"
     assert shipment_status("OUT FOR DELIVERY", False) == "out_for_delivery" and shipment_status("CANCELED", False) == "cancelled"
     assert shipment_status("???", False) == "unknown" and shipment_status(None, False) == "unknown"
+
+
+# ---- GraphQL-specific behaviour
+def test_shopify_gid_tail_name_and_ref_keys():
+    from transforms.shopify import order_external_id, shopify_ref_keys
+    assert order_external_id("gid://shopify/Order/5001") == "5001" and order_external_id(77) == "77"
+    assert shopify_ref_keys(fx.SHOPIFY_NORMAL) == ["5001", "1001"]
+
+
+def test_shopify_legacy_rest_payload_is_rejected_loudly():
+    rest = {"id": 1, "created_at": "2026-09-10T10:00:00+05:30", "line_items": [], "total_price": "10.00"}
+    with pytest.raises(TransformError, match="createdAt missing"):
+        transform_shopify_order(ORG, rest)
+
+
+def test_shopify_non_inr_rejected_and_missing_money_fields_surfaced():
+    p = copy.deepcopy(fx.SHOPIFY_NORMAL)
+    p["currencyCode"] = "USD"
+    with pytest.raises(TransformError, match="unsupported currency"):
+        transform_shopify_order(ORG, p)
+    q = copy.deepcopy(fx.SHOPIFY_NORMAL)
+    for k in ("totalTaxSet", "totalDiscountsSet", "totalShippingPriceSet", "totalPriceSet"):
+        del q[k]
+    b = transform_shopify_order(ORG, q)
+    assert b.order["taxes_paise"] == 0
+    for k in ("totalTaxSet", "totalDiscountsSet", "totalShippingPriceSet", "totalPriceSet"):
+        assert any(i.startswith(f"field_missing: {k}") for i in b.issues), k
+
+
+def test_shopify_truncated_connections_and_refund_sources():
+    p = copy.deepcopy(fx.SHOPIFY_RETURN)
+    p["lineItems"]["pageInfo"]["hasNextPage"] = True
+    assert any(i.startswith("line_items_truncated") for i in transform_shopify_order(ORG, p).issues)
+    p = copy.deepcopy(fx.SHOPIFY_RETURN)                        # order total missing -> sum of refunds[]
+    del p["totalRefundedSet"]
+    b = transform_shopify_order(ORG, p)
+    assert b.order["refunds_paise"] == 30000 and any(i.startswith("field_missing: totalRefundedSet") for i in b.issues)
+    p = copy.deepcopy(fx.SHOPIFY_RETURN)                        # only transactions: successful REFUND kinds only
+    del p["totalRefundedSet"]
+    p["refunds"] = []
+    p["transactions"] = [{"kind": "REFUND", "status": "SUCCESS", "amountSet": fx.money("120.00")},
+                         {"kind": "REFUND", "status": "FAILURE", "amountSet": fx.money("999.00")},
+                         {"kind": "SALE", "status": "SUCCESS", "amountSet": fx.money("799.00")}]
+    assert transform_shopify_order(ORG, p).order["refunds_paise"] == 12000
+    p = copy.deepcopy(fx.SHOPIFY_RETURN)
+    p["refunds"] = [{"totalRefundedSet": fx.money("100.00")}]
+    assert any(i.startswith("refund_sum_mismatch") for i in transform_shopify_order(ORG, p).issues)
+
+
+def test_shopify_uses_current_quantity_for_edited_orders():
+    p = copy.deepcopy(fx.SHOPIFY_NORMAL)
+    p["lineItems"]["nodes"][1]["currentQuantity"] = 1       # one unit removed by an order edit
+    assert transform_shopify_order(ORG, p).order["gross_revenue_paise"] == 79900 + 59900
+
+
+def test_shiprocket_unconfirmed_fields_surface_as_issue_not_silent_zero():
+    b = transform_shiprocket_shipment(ORG, {"id": 5, "channel_order_id": "1", "status": "DELIVERED"})
+    assert b.fees == [] and any(i.startswith("shiprocket_cost_fields_absent") for i in b.issues)
+    with pytest.raises(TransformError, match="order_id"):
+        transform_shiprocket_shipment(ORG, {"id": 5, "order_id": 99, "channel_id": 1, "status": "DELIVERED"})

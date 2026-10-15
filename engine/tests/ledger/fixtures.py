@@ -7,13 +7,31 @@ ORG = "00000000-0000-0000-0000-000000000001"
 ORG2 = "00000000-0000-0000-0000-000000000002"
 
 
-def _shopify(id_, name, created, items, *, gateway, discounts="0.00", tax, shipping="0.00", total, **extra):
-    p = {"id": id_, "name": name, "order_number": int(name.lstrip("#")), "created_at": created, "taxes_included": True,
-         "payment_gateway_names": [gateway], "total_discounts": discounts, "total_tax": tax, "total_price": total,
-         "total_shipping_price_set": {"shop_money": {"amount": shipping, "currency_code": "INR"}},
-         "line_items": items, "refunds": [], "email": "Asha.Rao@Example.com ", "phone": "+91 98765 43210",
-         "shipping_address": {"city": "Mumbai", "zip": "400001", "phone": None}, "fulfillment_status": "fulfilled",
-         "cancelled_at": None}
+def money(a):
+    return {"shopMoney": {"amount": a, "currencyCode": "INR"}}
+
+
+def _identity():
+    """Connector-style identity: HMACs from app.identity (needs CUSTOMER_HASH_KEY; tests/conftest.py sets it)."""
+    from app import identity
+    return {"emailHash": identity.hash_email("asha.rao@example.com"), "phoneHash": identity.hash_phone("+91 98765 43210")}
+
+
+def _shopify(num, name, created, items, *, gateway, discounts="0.00", tax, shipping="0.00", total, refunded="0.00", **extra):
+    """GraphQL Admin Order node in the shape connectors/shopify.py stores (SYNTHETIC). Raw email/phone are NOT present."""
+    nodes = [{"id": f"gid://shopify/LineItem/{num}{k}", "name": it.get("title", it["sku"]), "title": it.get("title", it["sku"]),
+              "sku": it["sku"], "quantity": it["quantity"], "currentQuantity": it["quantity"],
+              "originalUnitPriceSet": money(it["price"]), "discountedUnitPriceSet": money(it["price"]),
+              "totalDiscountSet": money("0.00")} for k, it in enumerate(items)]
+    p = {"id": f"gid://shopify/Order/{num}", "name": name, "createdAt": created, "updatedAt": created,
+         "processedAt": created, "cancelledAt": None, "displayFinancialStatus": "PAID",
+         "displayFulfillmentStatus": "FULFILLED", "currencyCode": "INR", "paymentGatewayNames": [gateway], "tags": [],
+         "sourceName": "web", "customer": {"id": "gid://shopify/Customer/9"}, "customerIdentity": _identity(),
+         "subtotalPriceSet": money(total), "totalPriceSet": money(total), "totalDiscountsSet": money(discounts),
+         "totalShippingPriceSet": money(shipping), "totalTaxSet": money(tax), "totalRefundedSet": money(refunded),
+         "shippingAddress": {"city": "Mumbai", "provinceCode": "MH", "zip": "400001", "countryCodeV2": "IN"},
+         "transactions": [], "lineItems": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes},
+         "refunds": [{"id": f"gid://shopify/Refund/{num}", "totalRefundedSet": money(refunded)}] if refunded != "0.00" else []}
     p.update(extra)
     return p
 
@@ -28,25 +46,22 @@ SHOPIFY_NORMAL = _shopify(
 SHOPIFY_COD = _shopify(
     5002, "#1002", "2026-09-11T11:00:00+05:30", [{"sku": "SER-50", "quantity": 1, "price": "1199.00"}],
     gateway="Cash on Delivery (COD)", tax="182.89", total="1199.00",
-    shipping_address={"city": "Jaipur", "zip": "302001"})
+    shippingAddress={"city": "Jaipur", "zip": "302001"})
 
 # COD order that will RTO (shipment fixture below)
 SHOPIFY_RTO = _shopify(
     5003, "#1003", "2026-09-12T09:00:00+05:30", [{"sku": "SHA-250", "quantity": 1, "price": "449.00"}],
-    gateway="cod", tax="68.49", shipping="50.00", total="499.00", shipping_address={"city": "Patna", "zip": "800001"})
+    gateway="cod", tax="68.49", shipping="50.00", total="499.00", shippingAddress={"city": "Patna", "zip": "800001"})
 
 # Prepaid, delivered, PARTIAL refund of 300.00 (customer return, see shipment). paid 799.00
 SHOPIFY_RETURN = _shopify(
     5004, "#1004", "2026-09-05T12:00:00+05:30", [{"sku": "SER-30", "quantity": 1, "price": "799.00"}],
-    gateway="razorpay", tax="121.88", total="799.00",
-    refunds=[{"id": 1, "transactions": [{"kind": "refund", "status": "success", "amount": "300.00"}]}])
+    gateway="razorpay", tax="121.88", total="799.00", refunded="300.00")
 
 # Prepaid, fully refunded goodwill refund, no return shipment
 SHOPIFY_REFUND = _shopify(
     5005, "#1005", "2026-09-06T12:00:00+05:30", [{"sku": "OIL-100", "quantity": 1, "price": "349.00"}],
-    gateway="razorpay", tax="53.24", total="349.00",
-    refunds=[{"id": 2, "transactions": [{"kind": "refund", "status": "success", "amount": "349.00"},
-                                        {"kind": "refund", "status": "failure", "amount": "999.00"}]}])
+    gateway="razorpay", tax="53.24", total="349.00", refunded="349.00")
 
 # Missing SKU on one line
 SHOPIFY_MISSING_SKU = _shopify(
@@ -54,14 +69,15 @@ SHOPIFY_MISSING_SKU = _shopify(
     [{"sku": "", "quantity": 1, "price": "100.00", "title": "Custom gift"}, {"sku": "OIL-100", "quantity": 1, "price": "349.00"}],
     gateway="razorpay", tax="68.49", total="449.00")
 
-# Prices EXCLUDE GST: 1000.00 + 180.00 tax = customer pays 1180.00
+# Prices EXCLUDE GST (payload carries taxesIncluded=False; the connector does not request it, see transforms/shopify.py)
 SHOPIFY_TAX_EXCLUSIVE = _shopify(
     5007, "#1007", "2026-09-14T12:00:00+05:30", [{"sku": "SER-30", "quantity": 1, "price": "1000.00"}],
-    gateway="razorpay", tax="180.00", total="1180.00", taxes_included=False)
+    gateway="razorpay", tax="180.00", total="1180.00", taxesIncluded=False)
 
 SHOPIFY_CANCELLED = _shopify(
     5008, "#1008", "2026-09-15T12:00:00+05:30", [{"sku": "SER-30", "quantity": 1, "price": "799.00"}],
-    gateway="razorpay", tax="121.88", total="799.00", cancelled_at="2026-09-15T13:00:00+05:30", fulfillment_status=None)
+    gateway="razorpay", tax="121.88", total="799.00", cancelledAt="2026-09-15T13:00:00+05:30",
+    displayFulfillmentStatus="UNFULFILLED")
 
 SHIPMENT_DELIVERED = {"id": 9001, "awb": "AWB1", "channel_order_id": "1002", "status": "DELIVERED", "freight_charges": "60.00",
                       "cod_charges": "25.00", "cod": 1, "delivered_date": "2026-09-14T10:00:00+05:30",
