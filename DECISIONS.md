@@ -27,6 +27,12 @@
 - **Impact:** Database agent must migrate the tier enum; ledger and metrics use the new values. Earlier launch prompts reference the old names only in passing; the contract wins.
 - **Date:** 2026-10-14 **Agent:** main
 
+## Frontend app architecture (2026-10-14, agent: frontend)
+- **Decision:** `web/` is Next.js (App Router) with every page a client component reading through one `Api` interface (`web/lib/api/`); a separate mock implementation (`web/lib/mocks/`) is selected by `NEXT_PUBLIC_USE_MOCKS` (default true). Responses are runtime-validated against the MetricResult contract. COGS and integrations go through the Supabase client (RLS); integrations select an explicit safe-column list, never `*`.
+- **Alternatives:** Server components with server-side fetch; MSW-style network mocking.
+- **Reason:** Supabase JWT lives in the browser session and the backend API does not exist yet; an in-process mock behind one interface keeps fake data out of components and makes the switch to live a single env flag.
+- **Impact:** No business math in React. The only arithmetic is `percentChange` (presentation util, two API values) in `web/lib/presentation.ts`. Backend CORS must allow the web origin.
+- **Date:** 2026-10-14 **Agent:** frontend
 ## Metric layer semantics (2026-10-14, agent: metrics)
 - **Decision:** (1) Cancelled orders are excluded everywhere; orders with status `rto` contribute no gross/discounts/taxes/refunds/COGS (sale never realised) but still carry fees, shipping and RTO return cost. (2) Shipping charged to customers is not part of net_revenue. (3) `shipping cost` = fees of type `shipping`; `fees` = all other fee types; per (order, type) the source priority is api > csv > estimated and estimated use is flagged. (4) New customer = customer_key whose earliest non-cancelled order (ordered_at, id) across all channels falls in the period. (5) RTO rate = rto / (delivered+returned+rto) over the trailing 180 days, ladder category x tier x payment -> tier x payment -> payment, min 30 resolved orders; order value = gross - discounts; order category = highest-value line. (6) Order-level amounts are split across SKU/category groups by line value with largest-remainder rounding so groups sum exactly. (7) Ad-spend metrics are group-able by week only (ROAS also platform). (8) Empty/undefined results are `value: null`, status `insufficient`.
 - **Alternatives:** Count rto revenue and rely on refunds_paise; allocate ad spend to channels pro rata; ratios as floats.

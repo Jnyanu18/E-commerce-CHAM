@@ -136,3 +136,16 @@ The ledger adapter assumes the REST `Order` shape. Our verified GraphQL payload 
 7. IDs: `id` is a global id `gid://shopify/Order/<n>` (orders.external_id will be the gid); `order_number` is absent (only `name`, e.g. `#1001`). `shopify_ref_keys` must also index the numeric tail of the gid so Shiprocket `channel_order_id` can link.
 8. Timestamps are ISO-8601 UTC (`Z`); `shippingAddress` carries only `city, provinceCode, zip, countryCodeV2` (no phone, no names).
 9. **Shiprocket:** the ledger needs `channel_order_id`, `freight_charges`, `cod_charges`, `rto_charges`, `cod_remitted_amount`, `courier_name`, `awb`, `is_return`, `delivered_date`. None of these field names is confirmed in Shiprocket's official docs (list-endpoint item shape unverified; Go SDK shows `id, order_id, channel_id, awb, status, courier, cod_charges, cost, ...`, i.e. `order_id` and `channel_id`, not `channel_order_id`). Needs a real sample response before either side commits to names.
+## Frontend (agent/frontend, 2026-10-15)
+### Done
+- `web/` Next.js 16 (App Router, TS), Tailwind 4, shadcn-style primitives, Recharts, Supabase client. Pages: Overview, Profitability (channel/SKU/category/city/city tier/COD vs prepaid), Marketing (platform figures labelled "Platform-reported, not causal"), Anomalies, AI brief (incl. INSUFFICIENT_DATA state), COGS editor, Integrations, Login.
+- `web/lib/api/` typed client + runtime MetricResult validation; `web/lib/mocks/` separate mock layer via `NEXT_PUBLIC_USE_MOCKS` (default true); mocks labelled "Sample data" in banner and header.
+- Verified: vitest 33 passed, tsc clean, eslint clean, `npm run build` ok, all 8 routes load in headless browser with 0 console errors (mock mode).
+### In Progress / Unverified
+- Live mode (real FastAPI + Supabase) untested: no backend, no Supabase credentials. COGS upsert and integrations select unverified against a real RLS database.
+### Integration Needed (contract change requests)
+1. Metrics `ad_spend` and `platform_reported_revenue` (not in the canonical list); group keys = ad platform (`meta`, `google_ads`).
+2. `group_by=city_tier` (enum `metro|tier_1|tier_2|tier_3|unknown`) alongside `city`.
+3. New endpoints: `GET /anomalies?org_id` (id, detected_at, severity low|medium|high|critical, metric, unit, observed, expected, summary, drivers[{dimension,key,detail,share 0..1}], evidence[{call_id,description}]) and `GET /briefs/latest?org_id` (CONTRACTS s6/s7 shape or `{status:"INSUFFICIENT_DATA",reason,fallback}`); shapes in `web/lib/api/types.ts`.
+4. `filters` query param assumed JSON-encoded object `{"channel":["shopify"]}`; confirm.
+5. API CORS must allow the web origin; WoW % is computed in `web/lib/presentation.ts` from two API values (ask for an API field if preferred).
