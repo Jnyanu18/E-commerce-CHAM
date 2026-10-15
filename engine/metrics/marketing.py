@@ -9,6 +9,8 @@ from collections import defaultdict
 
 from .core import ORDER_FILTERS, aggregate_ledger, load_orders, order_field, validate_request
 from .finance import ALLOWED_FILTERS as LEDGER_FILTERS, contribution_of, net_of
+from decimal import Decimal
+
 from .periods import week_start
 from .repository import MetricsRepository
 from .result import NO_ORDERS, div_paise, make_result, ratio
@@ -43,10 +45,19 @@ class _Spend:
         self.rev_spend = 0  # spend of rows that report revenue
         self.rows = 0
         self.rev_rows = 0  # rows that report revenue
+        self.impressions = 0
+        self.clicks = 0
+        self.conv = Decimal(0)
+        self.conv_rows = 0  # rows that report conversions
 
 
-def _spend_week_or_platform(row, group_by):
-    return week_start(row.date).isoformat() if group_by == "week" else row.platform
+def spend_group_key(row_date, platform, group_by):
+    """Group key for date/platform-keyed ad and traffic rows: 'day' | 'week' | 'platform' (channel for traffic)."""
+    if group_by == "day":
+        return row_date.isoformat()
+    if group_by == "week":
+        return week_start(row_date).isoformat()
+    return platform
 
 
 def load_spend(repo: MetricsRepository, org_id: str, dr: DateRange, nf, group_by, issues: list[str]) -> tuple[_Spend, dict[str, _Spend]]:
@@ -66,10 +77,15 @@ def load_spend(repo: MetricsRepository, org_id: str, dr: DateRange, nf, group_by
         dates.add(r.date)
         buckets = [total]
         if group_by:
-            buckets.append(groups.setdefault(_spend_week_or_platform(r, group_by), _Spend()))
+            buckets.append(groups.setdefault(spend_group_key(r.date, r.platform, group_by), _Spend()))
         for b in buckets:
             b.spend += r.spend_paise
             b.rows += 1
+            b.impressions += r.impressions
+            b.clicks += r.clicks
+            if r.platform_reported_conversions is not None:
+                b.conv += Decimal(r.platform_reported_conversions)
+                b.conv_rows += 1
             if r.platform_reported_revenue_paise is not None:
                 b.rev += r.platform_reported_revenue_paise
                 b.rev_spend += r.spend_paise
@@ -100,7 +116,7 @@ def _note_unattributable(nf, issues):
 
 def mer(org_id: str, date_range, filters: Filters | None = None, group_by: str | None = None, *, repo: MetricsRepository) -> MetricResult:
     dr = DateRange.of(date_range)
-    nf = _prep(group_by, filters, ("week",), LEDGER_FILTERS + AD_FILTERS)
+    nf = _prep(group_by, filters, ("day", "week"), LEDGER_FILTERS + AD_FILTERS)
     agg = aggregate_ledger(repo, org_id, dr, _ledger_filters(nf), group_by, {"gross", "discounts", "taxes", "refunds"})
     issues = list(agg.issues)
     spend, sgroups = load_spend(repo, org_id, dr, nf, group_by, issues)
@@ -118,7 +134,7 @@ def mer(org_id: str, date_range, filters: Filters | None = None, group_by: str |
 
 def platform_roas(org_id: str, date_range, filters: Filters | None = None, group_by: str | None = None, *, repo: MetricsRepository) -> MetricResult:
     dr = DateRange.of(date_range)
-    nf = _prep(group_by, filters, ("week", "platform"), AD_FILTERS)
+    nf = _prep(group_by, filters, ("day", "week", "platform"), AD_FILTERS)
     issues: list[str] = []
     spend, groups = load_spend(repo, org_id, dr, nf, group_by, issues)
     if spend.rows == 0:
@@ -134,7 +150,7 @@ def platform_roas(org_id: str, date_range, filters: Filters | None = None, group
 
 def blended_cac(org_id: str, date_range, filters: Filters | None = None, group_by: str | None = None, *, repo: MetricsRepository) -> MetricResult:
     dr = DateRange.of(date_range)
-    nf = _prep(group_by, filters, ("week",), ORDER_FILTERS + AD_FILTERS)
+    nf = _prep(group_by, filters, ("day", "week"), ORDER_FILTERS + AD_FILTERS)
     of = _ledger_filters(nf)
     issues: list[str] = []
     period = load_orders(repo, org_id, dr, {}, issues)  # unfiltered: first order must be judged against all orders
@@ -173,7 +189,7 @@ def blended_cac(org_id: str, date_range, filters: Filters | None = None, group_b
 
 def contribution_after_marketing(org_id: str, date_range, filters: Filters | None = None, group_by: str | None = None, *, repo: MetricsRepository) -> MetricResult:
     dr = DateRange.of(date_range)
-    nf = _prep(group_by, filters, ("week",), LEDGER_FILTERS + AD_FILTERS)
+    nf = _prep(group_by, filters, ("day", "week"), LEDGER_FILTERS + AD_FILTERS)
     comps = {"gross", "discounts", "taxes", "refunds", "cogs", "fees", "shipping", "returns"}
     agg = aggregate_ledger(repo, org_id, dr, _ledger_filters(nf), group_by, comps)
     issues = list(agg.issues)
