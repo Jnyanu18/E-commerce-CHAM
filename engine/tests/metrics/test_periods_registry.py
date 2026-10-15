@@ -28,7 +28,7 @@ def test_indian_fy():
 
 
 def test_registry_lists_every_metric_with_one_callable():
-    assert set(METRICS) == {"net_revenue", "contribution_margin", "expected_rto_loss", "blended_cac", "mer", "platform_roas", "contribution_after_marketing"}
+    assert set(METRICS) == {"net_revenue", "contribution_margin", "expected_rto_loss", "blended_cac", "mer", "platform_roas", "contribution_after_marketing", "ad_spend", "platform_reported_revenue"}
     repo = repo_with_spend()
     for name, spec in METRICS.items():
         assert spec.name == name and spec.description and spec.callable and "org_id" in spec.params

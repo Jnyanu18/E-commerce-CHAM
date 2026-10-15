@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from . import finance, marketing, rto
+from . import finance, marketing, marketing_spend, rto
 from .core import GROUP_KEYS, ITEM_FILTERS, ORDER_FILTERS
 from .types import MetricResult
 
@@ -43,6 +43,9 @@ METRICS: dict[str, MetricSpec] = {
         _spec(marketing.blended_cac, "blended_cac", marketing.BLENDED_CAC_DEF, "paise", ("week",), ORDER_FILTERS + marketing.AD_FILTERS),
         _spec(marketing.mer, "mer", marketing.MER_DEF, "ratio", ("week",), _LEDGER_FILTERS + marketing.AD_FILTERS),
         _spec(marketing.platform_roas, "platform_roas", marketing.ROAS_DEF, "ratio", ("week", "platform"), marketing.AD_FILTERS),
+        _spec(marketing_spend.ad_spend, "ad_spend", marketing.AD_SPEND_DEF, "paise", ("week", "platform"), marketing.AD_FILTERS),
+        _spec(marketing_spend.platform_reported_revenue, "platform_reported_revenue", marketing.PLATFORM_REVENUE_DEF, "paise",
+              ("week", "platform"), marketing.AD_FILTERS),
         _spec(marketing.contribution_after_marketing, "contribution_after_marketing", marketing.CAM_DEF, "paise", ("week",),
               _LEDGER_FILTERS + marketing.AD_FILTERS),
     )
