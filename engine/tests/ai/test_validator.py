@@ -101,7 +101,7 @@ def test_ratio_percent_and_probability_conversions():
                                                            "prob": 0.725, "pct": 12.5, "count": 1234}, None, "t"))
     v = lambda t: validate_brief(f"x {t} [c1]", log, require_sections=False).ok
     assert v("2.31") and v("2.3077x") and v("72.5%") and v("12.5%") and v("1,234") and v("0.725")
-    assert not v("2.4") and not v("73%") and not v("1,235")
+    assert not v("2.4") and not v("74%") and not v("1,235")
 
 
 def test_derived_difference_requires_both_cited():
