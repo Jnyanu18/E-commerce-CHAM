@@ -61,13 +61,13 @@ const FIXTURES: Partial<Record<MetricName, Fixture>> = {
     unit: "paise",
     definition: "sum of ad spend across platforms; keys are ad platforms (sample)",
     value: 126 * M,
-    groups: { channel: [["meta", 84 * M], ["google_ads", 42 * M]] },
+    groups: { channel: [["meta", 84 * M], ["google", 42 * M]] },
   },
   platform_reported_revenue: {
     unit: "paise",
     definition: "revenue as reported by ad platforms; not causal (sample)",
     value: 410 * M,
-    groups: { channel: [["meta", 270 * M], ["google_ads", 140 * M]] },
+    groups: { channel: [["meta", 270 * M], ["google", 140 * M]] },
   },
   mer: {
     unit: "ratio",
@@ -85,7 +85,7 @@ const FIXTURES: Partial<Record<MetricName, Fixture>> = {
     unit: "ratio",
     definition: "platform-reported revenue / ad spend. Platform-reported, not causal (sample)",
     value: 3.25,
-    groups: { channel: [["meta", 3.21], ["google_ads", 3.33]] },
+    groups: { channel: [["meta", 3.21], ["google", 3.33]] },
   },
 };
 
