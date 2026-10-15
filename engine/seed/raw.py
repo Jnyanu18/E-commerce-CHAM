@@ -120,12 +120,19 @@ def to_raw(data: dict) -> list[dict]:
     return out
 
 
+# Prepaid Shopify payment-gateway fees are not carried by any source record; the ledger estimates them from this rate
+# (2% of customer-paid value, matching the seed). COD orders carry an actual cod_charges fee instead.
+FEE_RATES_BPS = {"shopify": {"payment_gateway": 200}}
+
+
 def ground_truth(data: dict) -> dict:
     """Plain sums straight from the canonical seed rows (no metric-layer code). RTO orders realise no sale."""
     cogs = {sku: c * 100 for sku, _, _, c in SKUS}
     items, _fees, _rets = _index(data)
     gt = {"orders": len(data["orders"]), "net_revenue_paise": 0, "refunds_paise": 0, "cogs_paise": 0,
-          "by_channel_net_revenue": defaultdict(int), "status_counts": defaultdict(int)}
+          "by_channel_net_revenue": defaultdict(int), "status_counts": defaultdict(int),
+          "fees_paise": sum(f["amount_paise"] for f in data["fees"]),
+          "return_cost_paise": sum(r["cost_paise"] for r in data["returns"])}
     for o in data["orders"]:
         gt["status_counts"][o["status"]] += 1
         if o["status"] == "rto":
@@ -135,6 +142,9 @@ def ground_truth(data: dict) -> dict:
         gt["by_channel_net_revenue"][o["channel"]] += net
         gt["refunds_paise"] += o["refunds_paise"]
         gt["cogs_paise"] += sum(cogs[i["sku"]] * i["qty"] for i in items[o["external_id"]])
+    # RTO orders realise no sale/COGS but still carry fees and return cost (metric-layer rule, documented in DECISIONS.md)
+    gt["contribution_margin_paise"] = (gt["net_revenue_paise"] - gt["cogs_paise"] - gt["fees_paise"]
+                                       - gt["return_cost_paise"])
     gt["by_channel_net_revenue"] = dict(gt["by_channel_net_revenue"])
     gt["status_counts"] = dict(gt["status_counts"])
     return gt
