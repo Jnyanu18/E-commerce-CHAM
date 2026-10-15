@@ -23,20 +23,15 @@ def normalise_email(email: str | None) -> str | None:
     return e if "@" in e else None
 
 
-def normalise_phone(phone: str | None, default_country_code: str = "91") -> str | None:
-    """Digits only, E.164 without '+'. Indian default: 10 digits -> '91'+digits; leading 0 stripped.
+def normalise_phone(phone: str | None) -> str | None:
+    """Last 10 digits of the digits-only number (drops +91 / 0 / 00 prefixes).
 
-    Returns None when the result is not a plausible number (8-15 digits)."""
+    Deliberately identical to the ledger's `transforms.common.customer_key` phone rule so that a customer
+    hashed here joins with the ledger. Numbers with fewer than 10 digits -> None."""
     if not phone:
         return None
     digits = _NON_DIGIT.sub("", phone)
-    if digits.startswith("00"):
-        digits = digits[2:]
-    elif digits.startswith("0") and len(digits) == 11:
-        digits = digits[1:]
-    if len(digits) == 10:
-        digits = default_country_code + digits
-    return digits if 8 <= len(digits) <= 15 else None
+    return digits[-10:] if len(digits) >= 10 else None
 
 
 def hash_value(normalised: str | None, pepper: bytes | None = None) -> str | None:
