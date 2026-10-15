@@ -15,7 +15,7 @@ from transforms.common import OrderBundle, TransformError
 from transforms.fees import estimate_fees
 from transforms.marketplace import MARKETPLACES, channel_from_source, transform_marketplace_rows
 from transforms.shiprocket import transform_shiprocket_shipment
-from transforms.shopify import shopify_ref_keys, transform_shopify_order
+from transforms.shopify import order_external_id, shopify_ref_keys, transform_shopify_order
 
 from .repository import Repository
 
@@ -82,7 +82,7 @@ def _build_shopify_index(rows: list[dict]) -> dict[str, str | None]:
         p = r["payload"]
         if not isinstance(p, dict) or p.get("id") in (None, ""):
             continue
-        ext = str(p["id"])
+        ext = order_external_id(p["id"])
         for k in shopify_ref_keys(p):
             idx[k] = ext if idx.get(k, ext) == ext else None
     return idx

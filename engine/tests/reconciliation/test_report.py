@@ -77,7 +77,7 @@ def test_prepaid_rto_not_refunded_and_return_without_refund():
     p = dict(fx.SHOPIFY_NORMAL)
     repo.add_raw_record(ORG, "shopify_order", "5001", p)
     repo.add_raw_record(ORG, "shiprocket_shipment", "1", {"id": 1, "channel_order_id": "5001", "status": "RTO DELIVERED", "rto_charges": "50"})
-    repo.add_raw_record(ORG, "shopify_order", "5004", fx.SHOPIFY_RETURN | {"refunds": []})
+    repo.add_raw_record(ORG, "shopify_order", "5004", fx.SHOPIFY_RETURN | {"refunds": [], "totalRefundedSet": fx.money("0.00")})
     repo.add_raw_record(ORG, "shiprocket_shipment", "2", fx.SHIPMENT_RETURN)
     rep = report(repo)
     assert find(rep, "shopify", "rto_prepaid_not_refunded", "5001")[0]["expected_paise"] == 194600
