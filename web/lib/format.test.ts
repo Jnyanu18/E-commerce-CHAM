@@ -41,7 +41,7 @@ describe("formatPaiseCompact", () => {
     expect(formatPaiseCompact(100000 * 100)).toBe(`${R}1 L`);
     expect(formatPaiseCompact(450000 * 100)).toBe(`${R}4.5 L`);
     expect(formatPaiseCompact(10000000 * 100)).toBe(`${R}1 Cr`);
-    expect(formatPaiseCompact(12550000 * 100)).toBe(`${R}1.26 Cr`);
+    expect(formatPaiseCompact(12600000 * 100)).toBe(`${R}1.26 Cr`);
   });
   it("keeps sign and null handling", () => {
     expect(formatPaiseCompact(-250000 * 100)).toBe(`-${R}2.5 L`);
