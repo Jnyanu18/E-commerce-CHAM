@@ -144,7 +144,7 @@ The ledger adapter assumes the REST `Order` shape. Our verified GraphQL payload 
 ### In Progress / Unverified
 - Live mode (real FastAPI + Supabase) untested: no backend, no Supabase credentials. COGS upsert and integrations select unverified against a real RLS database.
 ### Integration Needed (contract change requests)
-1. Metrics `ad_spend` and `platform_reported_revenue` (not in the canonical list); group keys = ad platform (`meta`, `google_ads`).
+1. Metrics `ad_spend` and `platform_reported_revenue` (not in the canonical list); group keys = ad platform (`meta`, `google`).
 2. `group_by=city_tier` (enum `metro|tier_1|tier_2|tier_3|unknown`) alongside `city`.
 3. New endpoints: `GET /anomalies?org_id` (id, detected_at, severity low|medium|high|critical, metric, unit, observed, expected, summary, drivers[{dimension,key,detail,share 0..1}], evidence[{call_id,description}]) and `GET /briefs/latest?org_id` (CONTRACTS s6/s7 shape or `{status:"INSUFFICIENT_DATA",reason,fallback}`); shapes in `web/lib/api/types.ts`.
 4. `filters` query param assumed JSON-encoded object `{"channel":["shopify"]}`; confirm.
