@@ -174,7 +174,7 @@ def test_bad_records_are_collected_not_fatal_and_unknown_sources_reported():
 
 def test_ambiguous_and_unresolved_shipment_references():
     other = copy.deepcopy(fx.SHOPIFY_COD)
-    other["id"], other["name"], other["order_number"] = 7777, "#5001", 5001   # name collides with id 5001
+    other["id"], other["name"] = "gid://shopify/Order/7777", "#5001"   # name collides with id 5001
     repo = seeded(("shopify_order", "5001", fx.SHOPIFY_NORMAL), ("shopify_order", "7777", other),
                   ("shiprocket_shipment", "a", {"id": 1, "channel_order_id": "5001", "status": "DELIVERED"}),
                   ("shiprocket_shipment", "b", fx.SHIPMENT_ORPHAN))
