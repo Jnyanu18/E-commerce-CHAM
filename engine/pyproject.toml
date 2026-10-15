@@ -4,10 +4,12 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115", "uvicorn>=0.30", "psycopg[binary]>=3.2",
-  "cryptography>=43", "httpx>=0.27", "pydantic-settings>=2.4", "pandas>=2.2",
+  "cryptography>=43", "httpx>=0.27", "pydantic-settings>=2.4", "pandas>=2.2", "numpy>=2", "scipy>=1.13",
 ]
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+mmm = ["pymc>=5", "arviz"]   # Bayesian MMM sampler (engine/models/fit_pymc.py); needs a C++ compiler for speed
+ai = ["anthropic>=1"]        # Claude API provider (engine/ai/provider.py)
 [tool.setuptools.packages.find]
 include = ["app*", "worker*", "seed*", "metrics*", "connectors*", "ledger*", "transforms*", "reconciliation*", "intelligence*", "models*", "anomaly*", "ai*"]
 namespaces = true
