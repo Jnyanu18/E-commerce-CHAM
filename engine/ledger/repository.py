@@ -63,6 +63,13 @@ class Repository(ABC):
     @abstractmethod
     def upsert_shipment(self, org_id: str, shipment: dict, order_id: str | None, raw_ref: dict) -> None: ...
     @abstractmethod
+    def upsert_ad_spend(self, org_id: str, row: dict) -> str:
+        """ad_spend_daily upsert on (org_id, platform, campaign_id, date); a re-pull OVERWRITES the day. Returns
+        'inserted' | 'updated'."""
+    @abstractmethod
+    def ad_spend_dates(self, org_id: str) -> dict[str, set]:
+        """platform -> set of dates that have at least one ad_spend_daily row (for gap reporting)."""
+    @abstractmethod
     def iter_raw_records(self, org_id: str, sources: list[str] | None = None, since: str | None = None) -> list[dict]: ...
     @abstractmethod
     def load_city_tiers(self) -> dict[str, str]: ...
@@ -80,6 +87,7 @@ class InMemoryRepository(Repository):
         self.settlements: dict[tuple, dict] = {}       # header: (org, channel, external_id)
         self.settlement_items: dict[tuple, dict] = {}  # (org, channel, external_id, order_external_id, line_type)
         self.shipments: dict[tuple, dict] = {}
+        self.ad_spend: dict[tuple, dict] = {}          # (org, platform, campaign_id, date)
         self.raw: dict[tuple, dict] = {}
         self.city_tiers: dict[str, str] = {}
 
@@ -166,6 +174,19 @@ class InMemoryRepository(Repository):
             if row["order_id"] is None:
                 row["order_id"] = cur.get("order_id")
         self.shipments[key] = row
+
+    def upsert_ad_spend(self, org_id, row):
+        key = (org_id, row["platform"], row["campaign_id"], row["date"])
+        action = "updated" if key in self.ad_spend else "inserted"
+        self.ad_spend[key] = {"org_id": org_id, **row}
+        return action
+
+    def ad_spend_dates(self, org_id):
+        out: dict[str, set] = {}
+        for (o, plat, _, d) in self.ad_spend:
+            if o == org_id:
+                out.setdefault(plat, set()).add(d)
+        return out
 
     def iter_raw_records(self, org_id, sources=None, since=None):
         rows = [r for r in self.raw.values() if r["org_id"] == org_id and (not sources or r["source"] in sources)
