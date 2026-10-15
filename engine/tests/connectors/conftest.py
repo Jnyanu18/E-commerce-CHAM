@@ -45,3 +45,8 @@ def make_integration(store, provider, account_ref, **kw):
 
 def creds(**kw):
     return Credentials(kw)
+
+
+@pytest.fixture(autouse=True)
+def _hash_key(monkeypatch):
+    monkeypatch.setenv("CUSTOMER_HASH_KEY", "test-only-hash-key-0123456789")
