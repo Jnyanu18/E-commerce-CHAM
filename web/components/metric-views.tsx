@@ -1,10 +1,10 @@
 "use client";
 
-import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle, Badge } from "@/components/ui/primitives";
 import { EmptyState, InsufficientData } from "@/components/states";
 import type { MetricResult } from "@/lib/api";
-import { formatByUnit, formatPercent } from "@/lib/format";
+import { formatByUnit, formatCalendarDate, formatPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const KEY_LABELS: Record<string, string> = {
@@ -140,6 +140,53 @@ export function GroupBreakdown({
           </>
         )}
         <p className="mt-2 text-xs text-muted-foreground">{result.definition}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Daily trend lines from group_by=day MetricResults (values plotted exactly as returned). */
+export function TrendChart({ title, series }: { title: string; series: Array<{ name: string; result: MetricResult }> }) {
+  const unit = series[0]?.result.unit ?? "paise";
+  const byDate = new Map<string, Record<string, number | string | null>>();
+  series.forEach((s, idx) => {
+    for (const g of s.result.groups) {
+      const row = byDate.get(g.key) ?? { date: g.key };
+      row[`s${idx}`] = g.value;
+      byDate.set(g.key, row);
+    }
+  });
+  const data = [...byDate.values()].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const insufficient = series.some((s) => s.result.data_quality.status === "insufficient");
+  const colors = ["var(--chart-1)", "var(--chart-2)"];
+  return (
+    <Card>
+      <CardHeader><CardTitle>{title}</CardTitle></CardHeader>
+      <CardContent>
+        {insufficient ? (
+          <InsufficientData reason={series.flatMap((s) => s.result.data_quality.issues).join("; ") || undefined} />
+        ) : data.length === 0 ? (
+          <EmptyState title="No daily data for this period" />
+        ) : (
+          <div className="h-64 w-full" role="img" aria-label={`${title}: daily line chart of ${series.map((s) => s.name).join(" and ")}.`}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={data} margin={{ left: 8, right: 16 }}>
+                <CartesianGrid stroke="var(--border)" />
+                <XAxis dataKey="date" tickFormatter={(d: string) => formatCalendarDate(d).replace(/ \d{4}$/, "")} stroke="var(--muted-foreground)" fontSize={11} minTickGap={24} />
+                <YAxis tickFormatter={(v: number) => formatByUnit(v, unit)} stroke="var(--muted-foreground)" fontSize={11} width={72} />
+                <Tooltip
+                  labelFormatter={(d) => formatCalendarDate(String(d))}
+                  formatter={(v, name) => [formatByUnit(Number(v), unit), name]}
+                  contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--foreground)" }}
+                />
+                <Legend />
+                {series.map((s, i) => (
+                  <Line key={s.name} type="monotone" dataKey={`s${i}`} name={s.name} stroke={colors[i % colors.length]} dot={false} strokeWidth={2} isAnimationActive={false} />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

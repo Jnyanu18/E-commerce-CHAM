@@ -1,6 +1,7 @@
 import { ApiError } from "./errors";
 import { parseMetricResult } from "./validate";
-import type { Anomaly, Brief, MetricQuery, MetricResult } from "./types";
+import { normalizeAnomalies, normalizeBrief, normalizeDataQuality } from "./normalize";
+import type { Anomaly, Brief, DataQualityReport, MetricQuery, MetricResult } from "./types";
 
 export type FetchLike = (input: string, init?: { headers?: Record<string, string> }) => Promise<{
   ok: boolean;
@@ -24,6 +25,7 @@ export function buildMetricUrl(baseUrl: string, q: MetricQuery): string {
 }
 
 export function createHttpClient(opts: HttpClientOptions) {
+  const root = opts.baseUrl.replace(/\/+$/, "");
   const doFetch: FetchLike = opts.fetchImpl ?? ((url, init) => fetch(url, init));
 
   async function get(url: string): Promise<unknown> {
@@ -49,16 +51,14 @@ export function createHttpClient(opts: HttpClientOptions) {
     async getMetric(q: MetricQuery): Promise<MetricResult> {
       return parseMetricResult(await get(buildMetricUrl(opts.baseUrl, q)));
     },
-    // Proposed endpoints (not in CONTRACTS.md yet): see PROGRESS.md contract change requests.
     async getAnomalies(orgId: string): Promise<Anomaly[]> {
-      const body = await get(`${opts.baseUrl.replace(/\/+$/, "")}/anomalies?org_id=${encodeURIComponent(orgId)}`);
-      if (!Array.isArray(body)) throw new ApiError("invalid_response", "anomalies must be an array");
-      return body as Anomaly[];
+      return normalizeAnomalies(await get(`${root}/anomalies?org_id=${encodeURIComponent(orgId)}`));
     },
     async getBrief(orgId: string): Promise<Brief> {
-      const body = (await get(`${opts.baseUrl.replace(/\/+$/, "")}/briefs/latest?org_id=${encodeURIComponent(orgId)}`)) as Brief;
-      if (!body || typeof body !== "object" || !("status" in body)) throw new ApiError("invalid_response", "brief shape");
-      return body;
+      return normalizeBrief(await get(`${root}/briefs/latest?org_id=${encodeURIComponent(orgId)}`));
+    },
+    async getDataQuality(orgId: string): Promise<DataQualityReport> {
+      return normalizeDataQuality(await get(`${root}/data-quality?org_id=${encodeURIComponent(orgId)}`));
     },
   };
 }
