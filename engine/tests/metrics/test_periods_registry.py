@@ -28,7 +28,8 @@ def test_indian_fy():
 
 
 def test_registry_lists_every_metric_with_one_callable():
-    assert set(METRICS) == {"net_revenue", "contribution_margin", "expected_rto_loss", "blended_cac", "mer", "platform_roas", "contribution_after_marketing", "ad_spend", "platform_reported_revenue"}
+    assert set(METRICS) == {"net_revenue", "contribution_margin", "expected_rto_loss", "blended_cac", "mer", "platform_roas", "contribution_after_marketing", "ad_spend", "platform_reported_revenue",
+                           "orders", "aov", "sessions", "ad_impressions", "ad_clicks", "platform_reported_conversions"}
     repo = repo_with_spend()
     for name, spec in METRICS.items():
         assert spec.name == name and spec.description and spec.callable and "org_id" in spec.params
@@ -45,8 +46,9 @@ def test_registry_unknown_metric():
 
 def test_registry_declares_group_by_support():
     assert "pincode" in METRICS["net_revenue"].allowed_group_by
-    assert METRICS["mer"].allowed_group_by == ("week",)
-    assert METRICS["platform_roas"].allowed_group_by == ("week", "platform")
+    assert METRICS["mer"].allowed_group_by == ("day", "week")
+    assert METRICS["platform_roas"].allowed_group_by == ("day", "week", "platform")
+    assert "day" in METRICS["net_revenue"].allowed_group_by
 
 
 class _Cur:

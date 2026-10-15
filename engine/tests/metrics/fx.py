@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 
 from metrics import DateRange, InMemoryRepository
-from metrics.repository import AdSpendRow, FeeRow, ItemRow, OrderRow, ReturnRow, SkuCogsRow, SkuRow
+from metrics.repository import AdSpendRow, FeeRow, ItemRow, OrderRow, ReturnRow, SkuCogsRow, SkuRow, TrafficRow
 
 ORG = "org-1"
 OTHER_ORG = "org-2"
@@ -77,10 +78,12 @@ def main_repo() -> InMemoryRepository:
 
 def spend_rows() -> list[AdSpendRow]:
     """meta camp1 daily 14..20 Sep: spend 10000, reported revenue 25000 (7 days: 70000 / 175000).
-    google g1: 14 Sep spend 20000 revenue 70000; 15 Sep spend 10000 revenue NULL."""
-    rows = [AdSpendRow("meta", "m1", date(2026, 9, 14) + timedelta(days=i), 10000, 25000) for i in range(7)]
-    rows.append(AdSpendRow("google", "g1", date(2026, 9, 14), 20000, 70000))
-    rows.append(AdSpendRow("google", "g1", date(2026, 9, 15), 10000, None))
+    google g1: 14 Sep spend 20000 revenue 70000; 15 Sep spend 10000 revenue NULL.
+    Also: meta daily impressions 1000, clicks 50, conversions 2 (7d: 7000 / 350 / 14);
+    google 14 Sep impressions 3000, clicks 100, conversions 4.5; google 15 Sep impressions 2000, clicks 60, conversions NULL."""
+    rows = [AdSpendRow("meta", "m1", date(2026, 9, 14) + timedelta(days=i), 10000, 25000, 1000, 50, Decimal(2)) for i in range(7)]
+    rows.append(AdSpendRow("google", "g1", date(2026, 9, 14), 20000, 70000, 3000, 100, Decimal("4.5")))
+    rows.append(AdSpendRow("google", "g1", date(2026, 9, 15), 10000, None, 2000, 60, None))
     return rows
 
 
@@ -88,3 +91,8 @@ def repo_with_spend() -> InMemoryRepository:
     r = main_repo()
     r.add(ORG, ad_spend=spend_rows())
     return r
+
+
+def traffic_rows() -> list[TrafficRow]:
+    """shopify 14 Sep 1000 sessions, 15 Sep 1200; amazon 14 Sep 500 (total 2700 over 2 distinct days)."""
+    return [TrafficRow("shopify", date(2026, 9, 14), 1000), TrafficRow("shopify", date(2026, 9, 15), 1200), TrafficRow("amazon", date(2026, 9, 14), 500)]

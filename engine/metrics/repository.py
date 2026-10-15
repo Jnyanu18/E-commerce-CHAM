@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Iterable, Protocol, Sequence
 
 _TIER_ALIASES = {"tier1": "tier_1", "tier2": "tier_2", "tier3": "tier_3"}
@@ -83,6 +84,16 @@ class AdSpendRow:
     date: date
     spend_paise: int
     platform_reported_revenue_paise: int | None = None
+    impressions: int = 0
+    clicks: int = 0
+    platform_reported_conversions: Decimal | None = None
+
+
+@dataclass(frozen=True)
+class TrafficRow:
+    channel: str
+    date: date
+    sessions: int
 
 
 class MetricsRepository(Protocol):
@@ -95,6 +106,11 @@ class MetricsRepository(Protocol):
     def items(self, org_id: str, order_ids: Iterable[str]) -> Sequence[ItemRow]: ...
     def fees(self, org_id: str, order_ids: Iterable[str]) -> Sequence[FeeRow]: ...
     def returns(self, org_id: str, order_ids: Iterable[str]) -> Sequence[ReturnRow]: ...
+    def items_in_range(self, org_id: str, start: date, end: date) -> Sequence[ItemRow]:
+        """Items of all orders with ordered_date_ist in [start, end] (date-scoped; avoids id lists)."""
+    def fees_in_range(self, org_id: str, start: date, end: date) -> Sequence[FeeRow]: ...
+    def returns_in_range(self, org_id: str, start: date, end: date) -> Sequence[ReturnRow]: ...
+    def traffic(self, org_id: str, start: date, end: date) -> Sequence[TrafficRow]: ...
     def sku_cogs(self, org_id: str) -> Sequence[SkuCogsRow]: ...
     def skus(self, org_id: str) -> Sequence[SkuRow]: ...
     def ad_spend(self, org_id: str, start: date, end: date) -> Sequence[AdSpendRow]: ...
@@ -111,11 +127,12 @@ class InMemoryRepository:
     _sku_cogs: dict[str, list[SkuCogsRow]] = field(default_factory=dict)
     _skus: dict[str, list[SkuRow]] = field(default_factory=dict)
     _ad_spend: dict[str, list[AdSpendRow]] = field(default_factory=dict)
+    _traffic: dict[str, list[TrafficRow]] = field(default_factory=dict)
 
-    def add(self, org_id: str, *, orders=(), items=(), fees=(), returns=(), sku_cogs=(), skus=(), ad_spend=()) -> "InMemoryRepository":
+    def add(self, org_id: str, *, orders=(), items=(), fees=(), returns=(), sku_cogs=(), skus=(), ad_spend=(), traffic=()) -> "InMemoryRepository":
         for store, rows in (
             (self._orders, orders), (self._items, items), (self._fees, fees), (self._returns, returns),
-            (self._sku_cogs, sku_cogs), (self._skus, skus), (self._ad_spend, ad_spend),
+            (self._sku_cogs, sku_cogs), (self._skus, skus), (self._ad_spend, ad_spend), (self._traffic, traffic),
         ):
             store.setdefault(org_id, []).extend(rows)
         return self
@@ -138,6 +155,21 @@ class InMemoryRepository:
     def returns(self, org_id, order_ids):
         ids = set(order_ids)
         return [r for r in self._returns.get(org_id, []) if r.order_id in ids]
+
+    def _ids_in_range(self, org_id, start, end):
+        return {o.id for o in self._orders.get(org_id, []) if start <= o.ordered_date_ist <= end}
+
+    def items_in_range(self, org_id, start, end):
+        return self.items(org_id, self._ids_in_range(org_id, start, end))
+
+    def fees_in_range(self, org_id, start, end):
+        return self.fees(org_id, self._ids_in_range(org_id, start, end))
+
+    def returns_in_range(self, org_id, start, end):
+        return self.returns(org_id, self._ids_in_range(org_id, start, end))
+
+    def traffic(self, org_id, start, end):
+        return [r for r in self._traffic.get(org_id, []) if start <= r.date <= end]
 
     def sku_cogs(self, org_id):
         return list(self._sku_cogs.get(org_id, []))
@@ -225,6 +257,30 @@ class PostgresRepository:
         )
         return [ReturnRow(*r) for r in rows]
 
+    def _range_rows(self, sql_cols: str, table: str, org_id, start, end) -> list[tuple]:
+        return self._q(
+            f"select {sql_cols} from {table} t join orders o on o.id = t.order_id "
+            "where t.org_id = %s and o.org_id = %s and o.ordered_date_ist between %s and %s",
+            (org_id, org_id, start, end),
+        )
+
+    def items_in_range(self, org_id, start, end):
+        rows = self._range_rows("t.order_id::text, t.sku, t.qty, t.unit_price_paise", "order_items", org_id, start, end)
+        return [ItemRow(*r) for r in rows]
+
+    def fees_in_range(self, org_id, start, end):
+        rows = self._range_rows("t.order_id::text, t.type, t.amount_paise, t.source", "fees", org_id, start, end)
+        return [FeeRow(*r) for r in rows]
+
+    def returns_in_range(self, org_id, start, end):
+        rows = self._range_rows("t.order_id::text, t.type, t.cost_paise", "returns", org_id, start, end)
+        return [ReturnRow(*r) for r in rows]
+
+    def traffic(self, org_id, start, end):
+        rows = self._q("select channel, date, sessions from traffic_daily where org_id = %s and date between %s and %s",
+                       (org_id, start, end))
+        return [TrafficRow(*r) for r in rows]
+
     def sku_cogs(self, org_id):
         return [SkuCogsRow(*r) for r in self._q(
             "select sku, effective_from, cogs_paise from sku_cogs where org_id = %s", (org_id,))]
@@ -235,7 +291,8 @@ class PostgresRepository:
 
     def ad_spend(self, org_id, start, end):
         rows = self._q(
-            "select platform, campaign_id, date, spend_paise, platform_reported_revenue_paise from ad_spend_daily "
+            "select platform, campaign_id, date, spend_paise, platform_reported_revenue_paise, impressions, clicks, "
+            "platform_reported_conversions from ad_spend_daily "
             "where org_id = %s and date between %s and %s",
             (org_id, start, end),
         )

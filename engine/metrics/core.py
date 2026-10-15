@@ -9,6 +9,7 @@ Components (all integer paise, per order):
   fees                               - fees of every type except 'shipping'
   shipping                           - fees of type 'shipping'
   returns                            - returns.cost_paise (RTO + customer_return logistics loss)
+  orders                             - 1 per realised order (non-cancelled, non-rto)
 Cancelled orders are excluded from every metric.
 """
 from __future__ import annotations
@@ -25,7 +26,7 @@ from .types import DateRange, MetricError
 
 ORDER_FILTERS = ("channel", "city", "city_tier", "pincode", "payment_method")
 ITEM_FILTERS = ("sku", "category")
-ORDER_GROUPS = ("channel", "city", "city_tier", "pincode", "payment_method", "week")
+ORDER_GROUPS = ("channel", "city", "city_tier", "pincode", "payment_method", "week", "day")
 ITEM_GROUPS = ("sku", "category")
 GROUP_KEYS = ORDER_GROUPS + ITEM_GROUPS
 UNKNOWN = "unknown"
@@ -58,6 +59,8 @@ def allocate(amount: int, weights: list[int]) -> list[int]:
 
 
 def order_field(order: OrderRow, key: str) -> str:
+    if key == "day":
+        return order.ordered_date_ist.isoformat()
     if key == "week":
         return week_start(order.ordered_date_ist).isoformat()
     if key == "city_tier":
@@ -138,6 +141,7 @@ def primary_category(items: list[ItemRow], category_of: Mapping[str, str | None]
 def aggregate_orders(
     repo: MetricsRepository,
     org_id: str,
+    dr: DateRange,
     orders: list[OrderRow],
     filters: Mapping[str, list[str]],
     group_by: str | None,
@@ -148,13 +152,15 @@ def aggregate_orders(
     """Build per-order components, expand to SKU lines when needed, filter and group."""
     expand = group_by in ITEM_GROUPS or any(k in filters for k in ITEM_FILTERS)
     need_items = expand or "cogs" in comps
-    ids = [o.id for o in orders]
+    ids = {o.id for o in orders}
 
     items_by_order: dict[str, list[ItemRow]] = defaultdict(list)
     if need_items:
         seen: set[tuple[str, str]] = set()
         dup = 0
-        for it in repo.items(org_id, ids):
+        for it in repo.items_in_range(org_id, dr.start, dr.end):
+            if it.order_id not in ids:
+                continue
             if (it.order_id, it.sku) in seen:
                 dup += 1
                 continue
@@ -179,7 +185,9 @@ def aggregate_orders(
         best: dict[tuple[str, str], tuple[int, int, str]] = {}
         seen_f: set[tuple[str, str, str]] = set()
         dup = 0
-        for f in repo.fees(org_id, ids):
+        for f in repo.fees_in_range(org_id, dr.start, dr.end):
+            if f.order_id not in ids:
+                continue
             if (f.order_id, f.type, f.source) in seen_f:
                 dup += 1
                 continue
@@ -201,7 +209,9 @@ def aggregate_orders(
     if "returns" in comps:
         seen_r: set[tuple[str, str]] = set()
         dup = 0
-        for r in repo.returns(org_id, ids):
+        for r in repo.returns_in_range(org_id, dr.start, dr.end):
+            if r.order_id not in ids:
+                continue
             if (r.order_id, r.type) in seen_r:
                 dup += 1
                 continue
@@ -219,6 +229,8 @@ def aggregate_orders(
         realised = o.status != "rto"
         items = items_by_order.get(o.id, [])
         oc: Comps = {}
+        if "orders" in comps:
+            oc["orders"] = 1 if realised else 0
         if "gross" in comps:
             oc["gross"] = o.gross_revenue_paise if realised else 0
         if "discounts" in comps:
@@ -309,7 +321,7 @@ def aggregate_ledger(
 ) -> Aggregate:
     issues: list[str] = []
     orders = load_orders(repo, org_id, dr, filters, issues)
-    agg = aggregate_orders(repo, org_id, orders, filters, group_by, comps, issues)
+    agg = aggregate_orders(repo, org_id, dr, orders, filters, group_by, comps, issues)
     return agg
 
 
