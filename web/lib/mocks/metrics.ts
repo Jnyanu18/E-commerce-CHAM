@@ -10,7 +10,7 @@ interface Fixture {
   definition: string;
   value: number;
   /** Group fixtures keyed by group_by. */
-  groups: Partial<Record<GroupBy | "city_tier", Array<[string, number]>>>;
+  groups: Partial<Record<GroupBy, Array<[string, number]>>>;
   /** Fixture-specific data-quality issues for a given group_by (or "*" for all). */
   issues?: Record<string, string[]>;
 }
@@ -69,6 +69,18 @@ const FIXTURES: Partial<Record<MetricName, Fixture>> = {
     value: 410 * M,
     groups: { channel: [["meta", 270 * M], ["google", 140 * M]] },
   },
+  orders: {
+    unit: "count",
+    definition: "count of orders (sample definition text)",
+    value: 4800,
+    groups: { channel: [["shopify", 2500], ["amazon", 1500], ["flipkart", 600], ["blinkit", 200]] },
+  },
+  aov: {
+    unit: "paise",
+    definition: "average order value (sample definition text)",
+    value: 250_000,
+    groups: {},
+  },
   mer: {
     unit: "ratio",
     definition: "marketing efficiency ratio (sample definition text)",
@@ -108,7 +120,27 @@ function scale(v: number, unit: MetricUnit, factor: number): number {
   return Math.round(v * factor);
 }
 
+/** Deterministic per-day sample series for trend charts (sample data only). */
+function dayGroups(q: MetricQuery, fx: Fixture, days: number): Array<[string, number]> {
+  const out: Array<[string, number]> = [];
+  const base = dayNumber(q.start);
+  const per = (fx.value / BASELINE_DAYS) * periodFactor(q.start);
+  for (let i = 0; i < days; i++) {
+    const d = new Date((base + i) * 86_400_000).toISOString().slice(0, 10);
+    const wobble = 0.85 + (((i * 37 + base) % 31) / 31) * 0.3;
+    out.push([d, fx.unit === "ratio" ? Math.round(fx.value * wobble * 100) / 100 : Math.round(per * wobble)]);
+  }
+  return out;
+}
+
 export function mockMetric(q: MetricQuery): MetricResult {
+  if (q.metric === "sessions") {
+    return {
+      metric: q.metric, value: null, unit: "count", currency: "INR", period: { start: q.start, end: q.end }, filters: q.filters ?? {},
+      group_by: q.groupBy ?? null, groups: [], definition: "sessions from traffic_daily (sample)",
+      data_quality: { status: "insufficient", issues: ["no_traffic_connector: no sessions data ingested"], row_count: 0 },
+    };
+  }
   const fx = FIXTURES[q.metric];
   const days = dayNumber(q.end) - dayNumber(q.start) + 1;
   const period = { start: q.start, end: q.end };
@@ -131,9 +163,10 @@ export function mockMetric(q: MetricQuery): MetricResult {
   }
 
   const isRatio = fx.unit === "ratio";
+  const dayRows = q.groupBy === "day" ? dayGroups(q, fx, days) : null;
   const factor = (days / BASELINE_DAYS) * periodFactor(q.start);
   const f = isRatio || q.metric === "blended_cac" ? periodFactor(q.start) : factor;
-  const rows = q.groupBy ? fx.groups[q.groupBy] ?? [] : [];
+  const rows = dayRows ?? (q.groupBy ? fx.groups[q.groupBy] ?? [] : []);
   const issues = [...(fx.issues?.["*"] ?? []), ...(q.groupBy ? fx.issues?.[q.groupBy] ?? [] : [])];
 
   return {
@@ -144,7 +177,7 @@ export function mockMetric(q: MetricQuery): MetricResult {
     period,
     filters,
     group_by: q.groupBy ?? null,
-    groups: rows.map(([key, value]) => ({ key, value: scale(value, fx.unit, f) })),
+    groups: rows.map(([key, value]) => ({ key, value: dayRows ? value : scale(value, fx.unit, f) })),
     definition: fx.definition,
     data_quality: {
       status: issues.length ? "degraded" : "ok",
