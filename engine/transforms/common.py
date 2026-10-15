@@ -1,7 +1,7 @@
 """Shared pure helpers for source -> canonical transforms.
 
 Conventions (docs/CONTRACTS.md): money is integer paise via ``app.money``; timestamps are UTC;
-``customer_key`` is sha256 of a normalised email/phone and never raw PII.
+``customer_key`` comes from ``app.identity`` (HMAC) and is never raw PII.
 
 GST RULE (the ledger-wide convention, tested in tests/transforms/test_shopify.py):
   * ``orders.gross_revenue_paise``   = item value INCLUDING GST, before discounts, excluding shipping.
@@ -14,13 +14,13 @@ GST RULE (the ledger-wide convention, tested in tests/transforms/test_shopify.py
 """
 from __future__ import annotations
 
-import hashlib
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from app import identity as identity_lib
 from app.money import rupees_to_paise
 
 IST = timezone(timedelta(hours=5, minutes=30))  # fixed offset; India has no DST
@@ -94,19 +94,20 @@ def ist_date(dt: datetime):
     return dt.astimezone(IST).date()
 
 
-def customer_key(email: str | None = None, phone: str | None = None) -> str | None:
-    """sha256 hex of the normalised email (preferred) else phone. Raw PII is never returned/stored.
+def customer_key(email: str | None = None, phone: str | None = None, identity: dict | None = None) -> str | None:
+    """Ledger customer_key. NO hashing happens here: it is delegated to ``app.identity`` (the single canonical
+    implementation, HMAC-SHA256 keyed by CUSTOMER_HASH_KEY).
 
-    Email: stripped + lowercased. Phone: digits only, last 10 digits (drops +91/0 prefixes).
-    A person known by email on one channel and phone-only on another gets two keys (known limitation).
+    * ``identity`` = connector-supplied ``customerIdentity {emailHash, phoneHash}`` (precomputed HMACs, raw PII never
+      persisted) -> ``customer_key_from_hashes``. The legacy names ``emailSha256``/``phoneSha256`` are NOT valid and are
+      treated as absent.
+    * otherwise raw ``email``/``phone`` (CSV sources that carry them) -> ``app.identity.customer_key``.
     """
-    e = (email or "").strip().lower()
-    if e and "@" in e:
-        return hashlib.sha256(e.encode()).hexdigest()
-    digits = re.sub(r"\D", "", phone or "")
-    if len(digits) >= 10:
-        return hashlib.sha256(digits[-10:].encode()).hexdigest()
-    return None
+    ident = identity or {}
+    eh, ph = ident.get("emailHash") or None, ident.get("phoneHash") or None
+    if eh or ph:
+        return identity_lib.customer_key_from_hashes(eh, ph)
+    return identity_lib.customer_key(email, phone)
 
 
 def normalise_pincode(value: Any) -> str | None:

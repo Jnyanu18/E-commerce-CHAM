@@ -182,7 +182,8 @@ def _build(org_id: str, channel: str, oid: str, group: list[tuple[str, dict]], t
 
     order = {
         "ordered_at": ts_iso(ordered_at),
-        "customer_key": customer_key(first.get("customer_email"), first.get("customer_phone")),
+        "customer_key": customer_key(first.get("customer_email"), first.get("customer_phone"),
+                                  identity=first.get("customerIdentity")),
         "city": city, "city_tier": city_tier(city, tiers), "pincode": pin,
         "payment_method": pm, "status": status, "gross_revenue_paise": gross, "discounts_paise": disc,
         "taxes_paise": tax, "shipping_charged_paise": ship, "refunds_paise": refunds,
