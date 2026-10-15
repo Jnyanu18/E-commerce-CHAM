@@ -12,7 +12,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from metrics import METRICS
+from metrics import METRICS, WATERFALL_STEPS
 from metrics.repository import PostgresRepository
 from metrics.types import DateRange, MetricError
 
@@ -43,7 +43,7 @@ def authorise(org_id: str, authorization: str | None, conn) -> None:
 
 @router.get("/metrics")
 def list_metrics() -> dict:
-    return {"metrics": [{"name": s.name, "description": s.description, "unit": s.unit,
+    return {"waterfall": list(WATERFALL_STEPS), "metrics": [{"name": s.name, "description": s.description, "unit": s.unit,
                          "allowed_group_by": list(s.allowed_group_by), "allowed_filters": list(s.allowed_filters)}
                         for s in METRICS.values()]}
 
