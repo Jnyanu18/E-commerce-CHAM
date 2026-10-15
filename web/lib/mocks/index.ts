@@ -1,9 +1,12 @@
 import { ApiError } from "@/lib/api/errors";
 import type { Api, Integration, SkuCogs } from "@/lib/api/types";
-import { MOCK_ANOMALIES, MOCK_BRIEF, MOCK_BRIEF_INSUFFICIENT, MOCK_ORG_ID, MOCK_ORG_INSUFFICIENT } from "./intelligence";
+import {
+  MOCK_ANOMALIES, MOCK_BRIEF, MOCK_BRIEF_FALLBACK, MOCK_BRIEF_INSUFFICIENT, MOCK_BRIEF_NONE, MOCK_DATA_QUALITY,
+  MOCK_ORG_FALLBACK, MOCK_ORG_ID, MOCK_ORG_INSUFFICIENT, MOCK_ORG_NO_BRIEF,
+} from "./intelligence";
 import { mockMetric } from "./metrics";
 
-export { MOCK_ORG_ID, MOCK_ORG_INSUFFICIENT };
+export { MOCK_ORG_FALLBACK, MOCK_ORG_ID, MOCK_ORG_INSUFFICIENT, MOCK_ORG_NO_BRIEF };
 
 const MOCK_INTEGRATIONS: Integration[] = [
   { id: "int-1", org_id: MOCK_ORG_ID, provider: "shopify", account_ref: "sample-store.myshopify.com", status: "active", last_synced_at: "2026-10-14T01:00:00Z", last_error: null, backfill_done: true },
@@ -33,7 +36,13 @@ export function createMockApi(): Api {
       return MOCK_ANOMALIES;
     },
     async getBrief(orgId) {
-      return orgId === MOCK_ORG_INSUFFICIENT ? MOCK_BRIEF_INSUFFICIENT : MOCK_BRIEF;
+      if (orgId === MOCK_ORG_INSUFFICIENT) return MOCK_BRIEF_INSUFFICIENT;
+      if (orgId === MOCK_ORG_FALLBACK) return MOCK_BRIEF_FALLBACK;
+      if (orgId === MOCK_ORG_NO_BRIEF) return MOCK_BRIEF_NONE;
+      return MOCK_BRIEF;
+    },
+    async getDataQuality() {
+      return MOCK_DATA_QUALITY;
     },
     async listIntegrations() {
       return MOCK_INTEGRATIONS;

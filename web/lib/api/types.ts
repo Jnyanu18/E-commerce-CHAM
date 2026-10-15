@@ -12,12 +12,17 @@ export type MetricName =
   | "blended_cac"
   | "platform_roas"
   | "expected_rto_loss"
-  // Not yet in the canonical list: requested via contract change (see PROGRESS.md).
-  | "ad_spend"
-  | "platform_reported_revenue";
+    | "ad_spend"
+  | "platform_reported_revenue"
+  | "orders"
+  | "aov"
+  | "sessions"
+  | "ad_impressions"
+  | "ad_clicks"
+  | "platform_reported_conversions";
 
 // `city_tier` is a proposed addition (enum in CONTRACTS section 8); see PROGRESS.md change requests.
-export type GroupBy = "channel" | "sku" | "category" | "city" | "city_tier" | "pincode" | "payment_method" | "week";
+export type GroupBy = "channel" | "sku" | "category" | "city" | "city_tier" | "pincode" | "payment_method" | "day" | "week";
 
 export type CityTier = "metro" | "tier_1" | "tier_2" | "tier_3" | "unknown";
 
@@ -54,69 +59,75 @@ export interface MetricQuery {
   filters?: Record<string, string[]>;
 }
 
-/* ---- Intelligence (proposed endpoints; see PROGRESS.md contract change requests) ---- */
+/* ---- Intelligence (shapes produced by engine/app/api.py; normalised in lib/api/normalize.ts) ---- */
 
-export type Severity = "low" | "medium" | "high" | "critical";
+export type Severity = "medium" | "high" | "critical";
 
-export interface AnomalyDriver {
-  dimension: string; // e.g. "channel"
-  key: string; // e.g. "meta"
-  detail: string;
-  /** Share of the anomaly attributed to this driver, 0..1, supplied by the engine. */
-  share: number | null;
+/** A root-cause driver rendered defensively: a title plus whatever scalar fields the engine supplied. */
+export interface RootCauseDriver {
+  title: string;
+  fields: Array<{ label: string; value: string }>;
 }
 
-export interface AnomalyEvidence {
-  call_id: string;
-  description: string;
+export interface RootCause {
+  /** Top-level scalar notes from the root_cause object (method, status, ...). */
+  notes: Array<{ label: string; value: string }>;
+  drivers: RootCauseDriver[];
 }
 
 export interface Anomaly {
   id: string;
-  detected_at: string; // UTC ISO
-  severity: Severity;
-  metric: string; // affected metric
-  unit: MetricUnit;
+  metric: string;
+  date: string | null; // IST calendar day YYYY-MM-DD
+  week_start: string | null;
+  direction: "up" | "down" | null;
+  severity: Severity | null;
+  robust_z: number | null;
   observed: number | null;
   expected: number | null;
-  summary: string;
-  drivers: AnomalyDriver[];
-  evidence: AnomalyEvidence[];
+  /** null when the engine did not compute a root cause. */
+  root_cause: RootCause | null;
 }
 
-export interface BriefAction {
-  title: string;
-  rationale: string;
-  expected_impact_paise: number | null;
-  ci_low_paise: number | null;
-  ci_high_paise: number | null;
-  /** Probability (0..1) the action beats the current plan, from the engine. */
-  prob_beats_current: number | null;
-  confidence: "low" | "medium" | "high";
-  call_ids: string[];
-}
-
-export interface BriefStatement {
-  text: string;
-  call_ids: string[];
-}
-
-export interface BriefExperiment {
-  name: string;
-  hypothesis: string;
-  design: string;
+/** A stored tool call; the brief's [cN] citations resolve to `call_id`. */
+export interface BriefCall {
+  call_id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  ok: boolean;
+  result: unknown;
+  error: unknown;
+  timestamp: string | null;
 }
 
 export type Brief =
+  | { status: "none"; reason: string }
   | {
       status: "ok";
-      generated_at: string; // UTC ISO
-      what_happened: BriefStatement[];
-      why: BriefStatement[];
-      actions: BriefAction[];
-      experiment: BriefExperiment | null;
-    }
-  | { status: "INSUFFICIENT_DATA"; reason: string; fallback: string; generated_at: string | null };
+      week_start: string;
+      generated_at: string | null;
+      emailed_at: string | null;
+      mode: "narrative" | "fallback" | null;
+      markdown: string;
+      calls: BriefCall[];
+    };
+
+export type CheckSeverity = "ok" | "info" | "warn" | "error";
+
+export interface DataQualityCheck {
+  code: string;
+  severity: CheckSeverity;
+  count: number;
+  message: string;
+  examples: unknown[];
+}
+
+export interface DataQualityReport {
+  org_id: string;
+  generated_at: string | null;
+  status: CheckSeverity;
+  checks: DataQualityCheck[];
+}
 
 /* ---- Supabase-backed (read/write through the client; RLS enforced) ---- */
 
@@ -151,6 +162,7 @@ export interface Api {
   getMetric(q: MetricQuery): Promise<MetricResult>;
   getAnomalies(orgId: string): Promise<Anomaly[]>;
   getBrief(orgId: string): Promise<Brief>;
+  getDataQuality(orgId: string): Promise<DataQualityReport>;
   listIntegrations(orgId: string): Promise<Integration[]>;
   listSkuCogs(orgId: string): Promise<SkuCogs[]>;
   upsertSkuCogs(row: SkuCogs): Promise<SkuCogs>;
