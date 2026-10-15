@@ -21,7 +21,7 @@ from .credentials import Credentials
 from .errors import (AuthError, ConfigError, PermanentError, RateLimitError, ResponseShapeError,
                      TransientError)
 from .httpclient import default_classify, parse_retry_after
-from app.identity import hash_email, hash_phone
+from app.identity import MissingHashKey, _key as _hash_key_bytes, hash_email, hash_phone
 from .store import RawRecord
 
 API_VERSION = "2026-10"
@@ -41,7 +41,7 @@ query Orders($first: Int!, $after: String, $query: String) {{
     nodes {{
       id name createdAt updatedAt processedAt cancelledAt
       displayFinancialStatus displayFulfillmentStatus currencyCode
-      paymentGatewayNames tags sourceName email phone
+      paymentGatewayNames tags sourceName taxesIncluded email phone
       customer {{ id }}
       subtotalPriceSet {MONEY}
       totalPriceSet {MONEY}
@@ -97,6 +97,10 @@ class ShopifyConnector(Connector):
         shop = self.integration.account_ref.strip().lower()
         if not SHOP_RE.match(shop):
             raise ConfigError("account_ref must be a '<shop>.myshopify.com' domain", provider=self.provider)
+        try:  # fail loudly at construction, not mid-sync
+            _hash_key_bytes(hash_key)
+        except MissingHashKey as e:
+            raise ConfigError(f"customer hash key not configured: {e}", provider=self.provider) from None
         self.url = f"https://{shop}/admin/api/{api_version}/graphql.json"
         self.page_size, self.window_days, self.hash_key = page_size, window_days, hash_key
         self.backfill_start = backfill_start
