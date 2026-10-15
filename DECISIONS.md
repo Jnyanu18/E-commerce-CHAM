@@ -89,3 +89,5 @@
 - **Reason:** a hallucinated rupee figure in a founder's weekly brief is the product's worst failure; only a deterministic check against stored results can guarantee that, and it fails closed (to a plain data summary) rather than shipping unverifiable prose.
 - **Impact:** number WORDS ("three") and unlabeled bare years are not validated (documented limitation; prompt-only). Briefs must keep citations in the same sentence as the number. Main wires real intelligence/data-quality sources behind `ai.sources` protocols and calls `ai.brief.generate_brief`.
 - **Date:** 2026-10-15 **Agent:** ai
+
+- **Decision (2026-10-15, intelligence):** Handler-path MMM sampler is 2 chains x 500 draws x 500 tune (gates unchanged, so cheaper runs fail closed); anomaly scoring starts at the first order date (pre-history is not zero revenue); order-based daily series are zero-filled, ad/traffic series stay None. **Agent:** intelligence
