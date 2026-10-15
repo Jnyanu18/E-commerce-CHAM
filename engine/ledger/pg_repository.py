@@ -140,6 +140,24 @@ class PsycopgRepository(Repository):
                  shipment.get("delivered_at"), shipment.get("rto_at"), shipment["freight_cost_paise"],
                  shipment["cod_amount_paise"], org_id, raw_ref.get("source"), raw_ref.get("external_id")))
 
+    def upsert_ad_spend(self, org_id, row):
+        r = self._q("insert into ad_spend_daily (org_id, platform, campaign_id, campaign_name, date, spend_paise, impressions, "
+                    "clicks, platform_reported_conversions, platform_reported_revenue_paise) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                    "on conflict (org_id, platform, campaign_id, date) do update set campaign_name=excluded.campaign_name, "
+                    "spend_paise=excluded.spend_paise, impressions=excluded.impressions, clicks=excluded.clicks, "
+                    "platform_reported_conversions=excluded.platform_reported_conversions, "
+                    "platform_reported_revenue_paise=excluded.platform_reported_revenue_paise returning (xmax = 0) as inserted",
+                    (org_id, row["platform"], row["campaign_id"], row.get("campaign_name"), row["date"], row["spend_paise"],
+                     row["impressions"], row["clicks"], row.get("platform_reported_conversions"),
+                     row.get("platform_reported_revenue_paise")))
+        return "inserted" if r[0]["inserted"] else "updated"
+
+    def ad_spend_dates(self, org_id):
+        out: dict[str, set] = {}
+        for r in self._q("select distinct platform, date from ad_spend_daily where org_id=%s", (org_id,)):
+            out.setdefault(r["platform"], set()).add(r["date"])
+        return out
+
     def iter_raw_records(self, org_id, sources=None, since=None):
         sql, params = "select source, external_id, payload, ingested_at from raw_records where org_id=%s", [org_id]
         if sources:
