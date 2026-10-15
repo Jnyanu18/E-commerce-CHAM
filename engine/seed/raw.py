@@ -103,6 +103,28 @@ def _marketplace_rows(o: dict, items: list[dict], fees: list[dict], ret: dict | 
     return rows
 
 
+def _ad_rows(data: dict) -> list[dict]:
+    """Meta campaign-level daily insights and Google Ads rows, in the shapes the connectors persist."""
+    out = []
+    for a in data["ad_spend_daily"]:
+        day = a["date"].isoformat()
+        if a["platform"] == "meta":
+            p = {"account_id": "111222333", "account_currency": "INR", "campaign_id": a["campaign_id"],
+                 "campaign_name": a["campaign_name"], "date_start": day, "date_stop": day,
+                 "spend": rupees(a["spend_paise"]), "impressions": str(a["impressions"]), "clicks": str(a["clicks"]),
+                 "actions": [{"action_type": "purchase", "value": f"{a['platform_reported_conversions']:.2f}"}],
+                 "action_values": [{"action_type": "purchase", "value": rupees(a["platform_reported_revenue_paise"])}]}
+            out.append({"source": "meta_insights", "external_id": f"campaign:111222333:{a['campaign_id']}:{day}", "payload": p})
+        else:  # Google: cost in micros; conversions not fetched by default -> stay NULL downstream
+            p = {"campaign": {"resourceName": f"customers/1234567890/campaigns/{a['campaign_id']}", "id": a["campaign_id"],
+                              "name": a["campaign_name"]},
+                 "metrics": {"impressions": str(a["impressions"]), "clicks": str(a["clicks"]),
+                             "costMicros": str(a["spend_paise"] * 10_000)},
+                 "segments": {"date": day}}
+            out.append({"source": "google_ads_row", "external_id": f"campaign:{a['campaign_id']}:{day}", "payload": p})
+    return out
+
+
 def to_raw(data: dict) -> list[dict]:
     """-> [{source, external_id, payload}] ready for raw_records (org_id is added by the loader)."""
     items, fees, rets = _index(data)
@@ -117,7 +139,7 @@ def to_raw(data: dict) -> list[dict]:
         else:
             for row in _marketplace_rows(o, items[ext], fees[ext], rets.get(ext)):
                 out.append({"source": f"csv_{o['channel']}", "external_id": row["line_id"], "payload": row})
-    return out
+    return out + _ad_rows(data)
 
 
 # Prepaid Shopify payment-gateway fees are not carried by any source record; the ledger estimates them from this rate
@@ -145,6 +167,10 @@ def ground_truth(data: dict) -> dict:
     # RTO orders realise no sale/COGS but still carry fees and return cost (metric-layer rule, documented in DECISIONS.md)
     gt["contribution_margin_paise"] = (gt["net_revenue_paise"] - gt["cogs_paise"] - gt["fees_paise"]
                                        - gt["return_cost_paise"])
+    gt["ad_spend_paise"] = sum(a["spend_paise"] for a in data["ad_spend_daily"])
+    gt["meta_spend_paise"] = sum(a["spend_paise"] for a in data["ad_spend_daily"] if a["platform"] == "meta")
+    gt["meta_platform_revenue_paise"] = sum(a["platform_reported_revenue_paise"] for a in data["ad_spend_daily"]
+                                            if a["platform"] == "meta")
     gt["by_channel_net_revenue"] = dict(gt["by_channel_net_revenue"])
     gt["status_counts"] = dict(gt["status_counts"])
     return gt
