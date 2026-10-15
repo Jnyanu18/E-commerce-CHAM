@@ -103,6 +103,13 @@ def test_marketing_metrics_identical_to_in_memory(loaded, name, group_by):
 
 def test_platform_roas_and_filters_identical(loaded):
     mem, pg, org, _ = loaded
+    for name in ("ad_spend", "platform_reported_revenue"):
+        for gb in (None, "platform", "week"):
+            a = METRICS[name].callable(ORG, PERIOD, None, gb, repo=mem).to_dict()
+            assert a == METRICS[name].callable(org, PERIOD, None, gb, repo=pg).to_dict()
+    assert METRICS["ad_spend"].callable(org, PERIOD, None, "platform", repo=pg).to_dict()["groups"] == [
+        {"key": "google", "value": 30000}, {"key": "meta", "value": 70000}]
+    assert METRICS["platform_reported_revenue"].callable(org, PERIOD, None, None, repo=pg).value == 245000
     for gb in (None, "platform", "week"):
         assert METRICS["platform_roas"].callable(ORG, PERIOD, None, gb, repo=mem).to_dict() == \
             METRICS["platform_roas"].callable(org, PERIOD, None, gb, repo=pg).to_dict()
