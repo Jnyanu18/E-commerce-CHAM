@@ -88,3 +88,78 @@ def orders(org_id: str, date_range, filters: Filters | None = None, group_by: st
 def aov(org_id: str, date_range, filters: Filters | None = None, group_by: str | None = None, *, repo: MetricsRepository) -> MetricResult:
     return _run("aov", AOV_DEF, aov_of, _NET_COMPS | {"orders"}, org_id, date_range, filters, group_by, repo,
                 groups_allowed=ORDER_GROUPS, filters_allowed=ORDER_LEVEL_FILTERS)
+
+
+# --- Profit waterfall components -------------------------------------------------------------------------------
+# Each is a plain sum of ONE aggregate component, so the identities below hold exactly (also per group / SKU split):
+#   gross_revenue - discounts - taxes - refunds == net_revenue            (net_of)
+#   net_revenue - cogs - fees - shipping_cost - return_cost == contribution_margin   (contribution_of)
+_COMPONENTS = {
+    "gross_revenue": ("gross", "Gross revenue = sum of orders.gross_revenue_paise over non-cancelled, non-rto orders by IST order date."),
+    "discounts": ("discounts", "Discounts = sum of orders.discounts_paise over non-cancelled, non-rto orders (subtracted in net_revenue)."),
+    "taxes": ("taxes", "Taxes (GST) = sum of orders.taxes_paise over non-cancelled, non-rto orders (subtracted in net_revenue)."),
+    "refunds": ("refunds", "Refunds = sum of orders.refunds_paise over non-cancelled, non-rto orders (subtracted in net_revenue)."),
+    "cogs": ("cogs", "COGS = qty x sku_cogs with the latest effective_from <= order IST date, for non-cancelled, non-rto orders. "
+                     "Missing COGS (incl. placeholder SKU) is flagged and counted as 0, never silently known."),
+    "fees": ("fees", "Fees = all fee types except 'shipping' (commission, payment_gateway, fulfilment, other); per order and type "
+                     "actual api/csv fees win over estimated; estimated use is flagged."),
+    "shipping_cost": ("shipping", "Shipping cost = fees of type 'shipping' (same source precedence as fees; estimated use is flagged)."),
+    "return_cost": ("returns", "RTO/return cost = sum of returns.cost_paise (RTO + customer_return logistics loss, excluding the revenue refund)."),
+}
+
+
+def _component_metric(name: str):
+    comp, definition = _COMPONENTS[name]
+
+    def metric(org_id: str, date_range, filters: Filters | None = None, group_by: str | None = None, *, repo: MetricsRepository) -> MetricResult:
+        return _run(name, definition, lambda c: c.get(comp, 0), {comp}, org_id, date_range, filters, group_by, repo)
+
+    metric.__name__ = name
+    metric.__doc__ = definition
+    return metric
+
+
+gross_revenue = _component_metric("gross_revenue")
+discounts = _component_metric("discounts")
+taxes = _component_metric("taxes")
+refunds = _component_metric("refunds")
+cogs = _component_metric("cogs")
+fees = _component_metric("fees")
+shipping_cost = _component_metric("shipping_cost")
+return_cost = _component_metric("return_cost")
+
+COMPONENT_DEFS = {name: d for name, (_, d) in _COMPONENTS.items()}
+
+CM_PCT_DEF = (
+    "contribution_margin_pct = contribution_margin / net_revenue (ratio, 4 dp). Null when net_revenue <= 0 or there are no orders."
+)
+
+
+def cm_pct_of(c: dict[str, int]):
+    from .result import ratio
+
+    return ratio(contribution_of(c), net_of(c))
+
+
+def contribution_margin_pct(org_id: str, date_range, filters: Filters | None = None, group_by: str | None = None, *, repo: MetricsRepository) -> MetricResult:
+    res = _run("contribution_margin_pct", CM_PCT_DEF, cm_pct_of, _CM_COMPS, org_id, date_range, filters, group_by, repo, unit="ratio")
+    if res.value is None and "no_orders_in_period" not in res.data_quality.issues and "net_revenue_not_positive" not in res.data_quality.issues:
+        res.data_quality.issues.append("net_revenue_not_positive")
+    return res
+
+
+# Ordered waterfall for the UI/API: each step is a registry metric; sign says how it enters the running total.
+WATERFALL_STEPS = [
+    {"metric": "gross_revenue", "sign": 1},
+    {"metric": "discounts", "sign": -1},
+    {"metric": "taxes", "sign": -1},
+    {"metric": "refunds", "sign": -1},
+    {"metric": "net_revenue", "sign": 0, "subtotal": True},
+    {"metric": "cogs", "sign": -1},
+    {"metric": "fees", "sign": -1},
+    {"metric": "shipping_cost", "sign": -1},
+    {"metric": "return_cost", "sign": -1},
+    {"metric": "contribution_margin", "sign": 0, "subtotal": True},
+    {"metric": "ad_spend", "sign": -1},
+    {"metric": "contribution_after_marketing", "sign": 0, "subtotal": True},
+]

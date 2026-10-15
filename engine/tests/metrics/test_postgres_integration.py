@@ -214,3 +214,26 @@ def test_performance_50k_orders_quarter_by_channel(conn):
         assert dt < 10  # was ~15s wall before date-scoped fetches + vectorised aggregation (CPU 4.0s -> 1.4s)
     finally:
         cur.execute("delete from orgs where id = %s", (org,))
+
+
+WATERFALL = ["gross_revenue", "discounts", "taxes", "refunds", "cogs", "fees", "shipping_cost", "return_cost", "contribution_margin_pct"]
+
+
+@pytest.mark.parametrize("group_by", [None, "day", "week", "channel", "city", "pincode", "payment_method", "sku", "category"])
+def test_waterfall_components_parity_and_identities_on_postgres(loaded, group_by):
+    mem, pg, org, _ = loaded
+    res = {}
+    for name in WATERFALL + ["net_revenue", "contribution_margin"]:
+        a = METRICS[name].callable(ORG, PERIOD, None, group_by, repo=mem).to_dict()
+        b = METRICS[name].callable(org, PERIOD, None, group_by, repo=pg)
+        assert a == b.to_dict(), name
+        res[name] = b
+    keys = {g.key for g in res["net_revenue"].groups}
+    val = {n: {g.key: g.value for g in r.groups} for n, r in res.items()}
+    for k in keys:
+        assert val["gross_revenue"][k] - val["discounts"][k] - val["taxes"][k] - val["refunds"][k] == val["net_revenue"][k]
+        assert (val["net_revenue"][k] - val["cogs"][k] - val["fees"][k] - val["shipping_cost"][k] - val["return_cost"][k]
+                == val["contribution_margin"][k])
+    t = {n: r.value for n, r in res.items()}
+    assert t["gross_revenue"] - t["discounts"] - t["taxes"] - t["refunds"] == t["net_revenue"] == 130000
+    assert t["net_revenue"] - t["cogs"] - t["fees"] - t["shipping_cost"] - t["return_cost"] == t["contribution_margin"] == 87500

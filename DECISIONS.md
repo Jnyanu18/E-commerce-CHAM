@@ -91,3 +91,10 @@
 - **Date:** 2026-10-15 **Agent:** ai
 
 - **Decision (2026-10-15, intelligence):** Handler-path MMM sampler is 2 chains x 500 draws x 500 tune (gates unchanged, so cheaper runs fail closed); anomaly scoring starts at the first order date (pre-history is not zero revenue); order-based daily series are zero-filled, ad/traffic series stay None. **Agent:** intelligence
+
+## Profit waterfall identity (2026-10-15, agent: metrics)
+- **Decision:** The waterfall is a set of registry metrics, each a plain sum of one component from the single aggregate in `metrics.core.aggregate_orders`: `gross_revenue`, `discounts`, `taxes`, `refunds`, `cogs`, `fees` (non-shipping), `shipping_cost`, `return_cost`; plus `contribution_margin_pct` = contribution_margin / net_revenue (null when net_revenue <= 0). Identities hold EXACTLY in integer paise, for totals and for every group (including SKU/category splits, via largest-remainder allocation): `gross_revenue - discounts - taxes - refunds == net_revenue` and `net_revenue - cogs - fees - shipping_cost - return_cost == contribution_margin`; `contribution_after_marketing = contribution_margin - ad_spend`. `metrics.WATERFALL_STEPS` lists the ordered steps with signs and subtotals for the API/UI. Status/RTO/cancelled rules are shared (cancelled excluded; `rto` orders contribute no revenue/COGS but do carry fees, shipping and return cost). Missing-COGS and estimated-fee issues propagate to the component that causes them (and to the subtotals that include them).
+- **Alternatives:** Compute components in the frontend; separate formulas per component.
+- **Reason:** The frontend must not do arithmetic; one aggregate guarantees the identities by construction and the tests (in-memory and Postgres) assert them.
+- **Impact:** API exposes the metrics via the registry and may expose `WATERFALL_STEPS`.
+- **Date:** 2026-10-15 **Agent:** metrics

@@ -29,6 +29,7 @@ def test_indian_fy():
 
 def test_registry_lists_every_metric_with_one_callable():
     assert set(METRICS) == {"net_revenue", "contribution_margin", "expected_rto_loss", "blended_cac", "mer", "platform_roas", "contribution_after_marketing", "ad_spend", "platform_reported_revenue",
+                           "gross_revenue", "discounts", "taxes", "refunds", "cogs", "fees", "shipping_cost", "return_cost", "contribution_margin_pct",
                            "orders", "aov", "sessions", "ad_impressions", "ad_clicks", "platform_reported_conversions"}
     repo = repo_with_spend()
     for name, spec in METRICS.items():
