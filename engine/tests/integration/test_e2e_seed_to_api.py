@@ -148,3 +148,19 @@ def test_customer_keys_join_across_sources(world):
     multi = conn.execute("select count(*) from (select customer_key from orders where org_id=%s group by 1 "
                          "having count(distinct channel) > 1) t", (o["org"],)).fetchone()[0]
     assert multi > 0  # at least some customers really span channels
+
+
+def test_profit_waterfall_identities_hold_through_the_api(world):
+    """The UI draws the waterfall from these metrics without doing arithmetic, so the steps must add up exactly."""
+    _, orgs, client = world
+    steps = client.get("/metrics").json()["waterfall"]
+    assert [s["metric"] for s in steps][0] == "gross_revenue" and steps[-1]["metric"] == "contribution_after_marketing"
+    for o in orgs.values():
+        v = {s["metric"]: metric(client, o, s["metric"])["value"] for s in steps}
+        assert v["gross_revenue"] - v["discounts"] - v["taxes"] - v["refunds"] == v["net_revenue"] == o["gt"]["net_revenue_paise"]
+        assert v["net_revenue"] - v["cogs"] - v["fees"] - v["shipping_cost"] - v["return_cost"] == v["contribution_margin"] \
+            == o["gt"]["contribution_margin_paise"]
+        assert v["cogs"] == o["gt"]["cogs_paise"]
+        assert v["contribution_margin"] - v["ad_spend"] == v["contribution_after_marketing"]
+        by = {g["key"]: g["value"] for g in metric(client, o, "contribution_margin", "channel")["groups"]}
+        assert sum(by.values()) == v["contribution_margin"]
