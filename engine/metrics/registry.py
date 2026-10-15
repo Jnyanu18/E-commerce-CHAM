@@ -40,6 +40,11 @@ METRICS: dict[str, MetricSpec] = {
         _spec(finance.contribution_margin, "contribution_margin", finance.CONTRIBUTION_DEF, "paise", GROUP_KEYS, _LEDGER_FILTERS),
         _spec(rto.expected_rto_loss, "expected_rto_loss", rto.DEFINITION, "paise", GROUP_KEYS, _LEDGER_FILTERS,
               {"min_history": "optional int, min resolved orders per RTO segment", "lookback_days": "optional int"}),
+        *(
+            _spec(getattr(finance, n), n, finance.COMPONENT_DEFS[n], "paise", GROUP_KEYS, _LEDGER_FILTERS)
+            for n in ("gross_revenue", "discounts", "taxes", "refunds", "cogs", "fees", "shipping_cost", "return_cost")
+        ),
+        _spec(finance.contribution_margin_pct, "contribution_margin_pct", finance.CM_PCT_DEF, "ratio", GROUP_KEYS, _LEDGER_FILTERS),
         _spec(finance.orders, "orders", finance.ORDERS_DEF, "count", ORDER_GROUPS, ORDER_FILTERS),
         _spec(finance.aov, "aov", finance.AOV_DEF, "paise", ORDER_GROUPS, ORDER_FILTERS),
         _spec(marketing.blended_cac, "blended_cac", marketing.BLENDED_CAC_DEF, "paise", ("day", "week"), ORDER_FILTERS + marketing.AD_FILTERS),
