@@ -75,3 +75,30 @@ def data_quality(org_id: str, authorization: str | None = Header(None), conn=Dep
     from .dataquality import run_checks
     authorise(org_id, authorization, conn)
     return JSONResponse(run_checks(conn, org_id))
+
+
+@router.get("/anomalies")
+def anomalies(org_id: str, weeks: int = Query(4, ge=1, le=26), authorization: str | None = Header(None),
+              conn=Depends(get_conn)) -> JSONResponse:
+    """Stored anomalies (insights.anomalies) for the most recent `weeks` weeks, newest week first. Each record is the
+    intelligence job's output unchanged (id, metric, date, direction, robust_z, severity, observed/expected, root_cause)."""
+    authorise(org_id, authorization, conn)
+    rows = conn.execute("select week_start, anomalies from insights where org_id = %s and jsonb_array_length(anomalies) > 0 "
+                        "order by week_start desc limit %s", (org_id, weeks)).fetchall()
+    out = [{**a, "week_start": a.get("week_start") or ws.isoformat()} for ws, items in rows for a in items]
+    return JSONResponse({"anomalies": out})
+
+
+@router.get("/briefs/latest")
+def latest_brief(org_id: str, authorization: str | None = Header(None), conn=Depends(get_conn)) -> JSONResponse:
+    """Latest generated brief: markdown plus the stored tool calls its [call_id] citations resolve to."""
+    authorise(org_id, authorization, conn)
+    row = conn.execute("select week_start, brief_markdown, tool_calls, generated_at, emailed_at from insights "
+                       "where org_id = %s and brief_markdown is not null order by week_start desc limit 1", (org_id,)).fetchone()
+    if row is None:
+        return JSONResponse({"status": "none", "reason": "no brief has been generated for this brand yet"})
+    ws, md, tc, gen, emailed = row
+    tc = tc or {}
+    return JSONResponse({"status": "ok", "week_start": ws.isoformat(), "generated_at": gen.isoformat(),
+                         "emailed_at": emailed.isoformat() if emailed else None, "markdown": md,
+                         "mode": (tc.get("meta") or {}).get("mode"), "calls": tc.get("calls", [])})
