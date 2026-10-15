@@ -9,8 +9,8 @@ from datetime import date, datetime, timedelta, timezone
 
 CITIES = [  # (city, tier, weight)
     ("Mumbai", "metro", 14), ("Delhi", "metro", 14), ("Bengaluru", "metro", 12),
-    ("Hyderabad", "metro", 8), ("Pune", "tier1", 7), ("Jaipur", "tier2", 5),
-    ("Lucknow", "tier2", 4), ("Indore", "tier2", 4), ("Patna", "tier3", 3), ("Guwahati", "tier3", 2),
+    ("Hyderabad", "metro", 8), ("Pune", "tier_1", 7), ("Jaipur", "tier_2", 5),
+    ("Lucknow", "tier_2", 4), ("Indore", "tier_2", 4), ("Patna", "tier_3", 3), ("Guwahati", "tier_3", 2),
 ]
 SKUS = [  # (sku, category, mrp_rupees, cogs_rupees)
     ("SER-30", "skincare", 799, 210), ("SER-50", "skincare", 1199, 300),
@@ -19,7 +19,7 @@ SKUS = [  # (sku, category, mrp_rupees, cogs_rupees)
 ]
 CHANNELS = {"shopify": 0.55, "amazon": 0.30, "blinkit": 0.15}
 FEE_PCT = {"shopify": 0.0, "amazon": 0.15, "blinkit": 0.22}   # commission
-RTO_BASE = {"metro": 0.08, "tier1": 0.12, "tier2": 0.18, "tier3": 0.25}
+RTO_BASE = {"metro": 0.08, "tier_1": 0.12, "tier_2": 0.18, "tier_3": 0.25}
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
@@ -78,7 +78,7 @@ def generate(start: date = date(2025, 4, 1), weeks: int = 78, seed: int = 7) -> 
             if FEE_PCT[channel]:
                 out["fees"].append({"order_ext": oid, "type": "commission", "amount_paise": int((gross - discount) * FEE_PCT[channel]), "source": "csv"})
             if channel != "blinkit":
-                out["fees"].append({"order_ext": oid, "type": "shipping", "amount_paise": 7500 + 1500 * (tier in ("tier2", "tier3")), "source": "api"})
+                out["fees"].append({"order_ext": oid, "type": "shipping", "amount_paise": 7500 + 1500 * (tier in ("tier_2", "tier_3")), "source": "api"})
             if channel == "shopify" and not cod:
                 out["fees"].append({"order_ext": oid, "type": "payment_gateway", "amount_paise": int((gross - discount) * 0.02), "source": "api"})
             if cod and channel == "shopify":

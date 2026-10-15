@@ -7,3 +7,5 @@ __pycache__/
 .next/
 *.pyc
 *.egg-info/
+.localdb/
+*.out
