@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pytest
 
@@ -114,14 +116,11 @@ def test_check_diagnostics_missing_keys_fail_closed():
     assert check_diagnostics(_planted_draws().diagnostics) is None
 
 
-def test_no_pymc_means_insufficient_dependency_not_fake_curves():
-    pytest.importorskip("numpy")
-    try:
-        import pymc  # noqa: F401
-        pytest.skip("PyMC present; dependency-absent path not applicable")
-    except ImportError:
-        r = run_mmm(make(78))
-        assert r["status"] == "INSUFFICIENT_DATA" and r["stage"] == "dependency" and "curves" not in r
+def test_no_pymc_means_insufficient_dependency_not_fake_curves(monkeypatch):
+    import sys
+    monkeypatch.setitem(sys.modules, "pymc", None)  # makes `import pymc` raise ImportError
+    r = run_mmm(make(78))
+    assert r["status"] == "INSUFFICIENT_DATA" and r["stage"] == "dependency" and "curves" not in r
 
 
 def test_calibration_point_requires_se_and_lift_matches_curve():
@@ -148,7 +147,10 @@ def test_descriptive_fallback_empty_and_basic():
     assert descriptive_fallback(make(20))["note"].startswith("Association")
 
 
+@pytest.mark.slow
+@pytest.mark.skipif(os.environ.get("RUN_SLOW") != "1", reason="slow: set RUN_SLOW=1 (about 7.5 min with pure-Python pytensor, no C++ compiler)")
 def test_pymc_recovers_planted_response():
+    """Expected runtime: ~7.5 min on the dev box (no C++ compiler => pure-Python pytensor)."""
     pytest.importorskip("pymc")
     pytest.importorskip("arviz")
     d = make(78)
