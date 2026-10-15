@@ -9,7 +9,6 @@ from connectors.base import Connector, parse_ts
 from connectors.credentials import Credentials, decrypt_credentials, redact
 from connectors.errors import (AuthError, PermanentError, RateLimitError, TransientError)
 from connectors.httpclient import HttpClient, RetryPolicy, parse_retry_after
-from connectors.identity import hash_email, hash_phone, normalise_phone
 from connectors.store import InMemoryStore, RawRecord
 
 from .conftest import NOW, ORG, make_http, make_integration
@@ -98,15 +97,15 @@ def test_decrypt_credentials_roundtrip_and_failure():
         decrypt_credentials(None, key)
 
 
-def test_identity_hashing_normalisation():
-    assert hash_email("  Foo@Example.COM ") == hash_email("foo@example.com")
-    assert hash_email("not-an-email") is None and hash_email(None) is None
-    assert normalise_phone("+91 98765-43210") == "9876543210"
-    assert normalise_phone("09876543210") == "9876543210"
-    assert normalise_phone("9876543210") == "9876543210"
-    assert normalise_phone("123") is None
-    assert hash_phone("98765 43210") == hash_phone("+919876543210")
-    assert hash_email("a@b.co", b"pepper") != hash_email("a@b.co")
+def test_shopify_identity_matches_app_identity_and_drops_raw_pii():
+    import app.identity as ai
+    from connectors.shopify import sanitize_order
+    out = sanitize_order({"id": "x", "email": " A@B.co ", "phone": "+91 98765 43210"}, "k" * 20)
+    assert out["customerIdentity"] == {"emailHash": ai.hash_email("a@b.co", "k" * 20),
+                                       "phoneHash": ai.hash_phone("9876543210", "k" * 20)}
+    assert "email" not in out and "phone" not in out
+    assert ai.customer_key_from_hashes(**{"email_hash": out["customerIdentity"]["emailHash"],
+                                          "phone_hash": None}) == ai.customer_key("a@b.co", key="k" * 20)
 
 
 def test_inmemory_upsert_idempotent_and_detects_change():
