@@ -21,3 +21,9 @@ def encrypt(data: dict, key_b64: str, aad: bytes = b"") -> bytes:
 def decrypt(blob: bytes, key_b64: str, aad: bytes = b"") -> dict:
     blob = bytes(blob)
     return json.loads(AESGCM(_key(key_b64)).decrypt(blob[:12], blob[12:], aad))
+
+
+def credentials_aad(org_id: str, integration_id: str) -> bytes:
+    """AAD binding a credentials blob to its integration and org, so ciphertext copied between rows/tenants fails to decrypt.
+    Use the SAME values when encrypting (at connect time) and decrypting (worker)."""
+    return f"integration:{integration_id}:org:{org_id}".encode()

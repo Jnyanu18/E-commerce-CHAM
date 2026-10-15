@@ -13,13 +13,16 @@ import psycopg
 from app.config import settings
 from ledger.jobs import handle_reconcile, handle_transform
 
+from .handlers import handle_sync, handle_weekly_brief
 from .queue import Handler, reap, run_one
+from .scheduler import enqueue_due
 
 log = logging.getLogger("worker")
 
 
 def handlers() -> dict[str, Handler]:
-    return {"transform": handle_transform, "reconcile": handle_reconcile}
+    return {"transform": handle_transform, "reconcile": handle_reconcile, "sync": handle_sync,
+            "weekly_brief": handle_weekly_brief}
 
 
 def drain(conn: psycopg.Connection, hs: dict[str, Handler] | None = None, max_jobs: int = 1000) -> int:
@@ -38,6 +41,7 @@ def main(poll_seconds: float = 5.0) -> None:  # pragma: no cover - process loop
     logging.basicConfig(level=logging.INFO)
     with psycopg.connect(settings.database_url, autocommit=True) as conn:
         while True:
+            enqueue_due(conn)  # time-based jobs (daily sync, Monday brief); idempotent
             if drain(conn) == 0:
                 time.sleep(poll_seconds)
 
