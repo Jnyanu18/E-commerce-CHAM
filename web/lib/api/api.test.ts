@@ -142,3 +142,20 @@ describe("env flag", () => {
     expect(isMockMode("FALSE")).toBe(false);
   });
 });
+
+describe("validator edge cases for live engine output", () => {
+  const base = {
+    metric: "mer", value: null, unit: "ratio", currency: "INR",
+    period: { start: "2026-09-01", end: "2026-09-30" }, filters: {}, group_by: null, groups: [],
+    definition: "d", data_quality: { status: "insufficient", issues: ["no spend"], row_count: 0 },
+  };
+  it("accepts null value, ratio unit, insufficient status", () => {
+    const r = parseMetricResult(base);
+    expect(r.value).toBeNull();
+    expect(r.unit).toBe("ratio");
+    expect(r.data_quality.status).toBe("insufficient");
+  });
+  it("accepts null group values", () => {
+    expect(parseMetricResult({ ...base, groups: [{ key: "google", value: null }] }).groups[0].value).toBeNull();
+  });
+});

@@ -16,6 +16,7 @@ const KEY_LABELS: Record<string, string> = {
   tier_3: "Tier 3",
   unknown: "Unknown",
   google_ads: "Google Ads",
+  google: "Google Ads",
   meta: "Meta",
 };
 export function labelForKey(key: string): string {
