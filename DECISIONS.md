@@ -26,3 +26,10 @@
 - **Reason:** The Round 1 build briefs specify these; settling them in the shared contract before eight agents start prevents divergence.
 - **Impact:** Database agent must migrate the tier enum; ledger and metrics use the new values. Earlier launch prompts reference the old names only in passing; the contract wins.
 - **Date:** 2026-10-14 **Agent:** main
+
+## Frontend app architecture (2026-10-14, agent: frontend)
+- **Decision:** `web/` is Next.js (App Router) with every page a client component reading through one `Api` interface (`web/lib/api/`); a separate mock implementation (`web/lib/mocks/`) is selected by `NEXT_PUBLIC_USE_MOCKS` (default true). Responses are runtime-validated against the MetricResult contract. COGS and integrations go through the Supabase client (RLS); integrations select an explicit safe-column list, never `*`.
+- **Alternatives:** Server components with server-side fetch; MSW-style network mocking.
+- **Reason:** Supabase JWT lives in the browser session and the backend API does not exist yet; an in-process mock behind one interface keeps fake data out of components and makes the switch to live a single env flag.
+- **Impact:** No business math in React. The only arithmetic is `percentChange` (presentation util, two API values) in `web/lib/presentation.ts`. Backend CORS must allow the web origin.
+- **Date:** 2026-10-14 **Agent:** frontend
