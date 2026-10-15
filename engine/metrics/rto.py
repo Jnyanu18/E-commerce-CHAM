@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import timedelta
 
-from .core import GROUP_KEYS, ITEM_FILTERS, ORDER_FILTERS, aggregate_orders, load_orders, order_field, primary_category, validate_request
+from .core import gc_paused, GROUP_KEYS, ITEM_FILTERS, ORDER_FILTERS, aggregate_orders, load_orders, order_field, primary_category, validate_request
 from .repository import MetricsRepository, normalise_tier
 from .result import NO_ORDERS, make_result
 from .types import DateRange, Filters, MetricResult, normalise_filters
@@ -40,6 +40,7 @@ def _segment_keys(category: str, tier: str, pm: str):
     return [(category, tier, pm), (tier, pm), (pm,)]
 
 
+@gc_paused
 def expected_rto_loss(
     org_id: str, date_range, filters: Filters | None = None, group_by: str | None = None, *, repo: MetricsRepository,
     min_history: int = MIN_HISTORY, lookback_days: int = LOOKBACK_DAYS,

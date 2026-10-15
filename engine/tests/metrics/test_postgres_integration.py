@@ -8,11 +8,12 @@ import os
 import time
 import uuid
 from datetime import date
+from decimal import Decimal
 
 import pytest
 
 from metrics import DateRange, METRICS, PostgresRepository, contribution_margin, net_revenue
-from tests.metrics.fx import ORG, OTHER_ORG, PERIOD, repo_with_spend
+from tests.metrics.fx import ORG, OTHER_ORG, PERIOD, repo_with_spend, traffic_rows
 
 URL = os.environ.get("DATABASE_URL")
 psycopg = pytest.importorskip("psycopg")
@@ -38,6 +39,7 @@ def _uid(ns, s):
 def loaded(conn):
     """Load fx.repo_with_spend() rows into the real tables under a fresh org; returns (mem_repo, pg_repo, db_org)."""
     mem = repo_with_spend()
+    mem.add(ORG, traffic=traffic_rows())
     ns = str(uuid.uuid4())
     org = _uid(ns, ORG)
     other = _uid(ns, OTHER_ORG)
@@ -66,8 +68,12 @@ def loaded(conn):
     for c in mem._sku_cogs[ORG]:
         cur.execute("insert into sku_cogs(org_id, sku, effective_from, cogs_paise) values (%s,%s,%s,%s)", (org, c.sku, c.effective_from, c.cogs_paise))
     for a in mem._ad_spend[ORG]:
-        cur.execute("insert into ad_spend_daily(org_id, platform, campaign_id, date, spend_paise, platform_reported_revenue_paise)"
-                    " values (%s,%s,%s,%s,%s,%s)", (org, a.platform, a.campaign_id, a.date, a.spend_paise, a.platform_reported_revenue_paise))
+        cur.execute("insert into ad_spend_daily(org_id, platform, campaign_id, date, spend_paise, platform_reported_revenue_paise,"
+                    " impressions, clicks, platform_reported_conversions) values (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (org, a.platform, a.campaign_id, a.date, a.spend_paise, a.platform_reported_revenue_paise,
+                     a.impressions, a.clicks, a.platform_reported_conversions))
+    for t in mem._traffic[ORG]:
+        cur.execute("insert into traffic_daily(org_id, channel, date, sessions) values (%s,%s,%s,%s)", (org, t.channel, t.date, t.sessions))
     # a row for the other tenant that must never leak
     cur.execute("insert into orders(org_id, channel, external_id, ordered_at, payment_method, gross_revenue_paise)"
                 " values (%s,'shopify','x','2026-09-15 06:00:00+00','prepaid',777777)", (other,))
@@ -75,7 +81,7 @@ def loaded(conn):
     cur.execute("delete from orgs where id in (%s,%s)", (org, other))
 
 
-GROUPS = [None, "channel", "sku", "category", "city", "city_tier", "pincode", "payment_method", "week"]
+GROUPS = [None, "day", "channel", "sku", "category", "city", "city_tier", "pincode", "payment_method", "week"]
 
 
 def _norm(d):
@@ -93,12 +99,44 @@ def test_ledger_metrics_identical_to_in_memory(loaded, name, group_by):
 
 
 @pytest.mark.parametrize("name", ["mer", "blended_cac", "contribution_after_marketing"])
-@pytest.mark.parametrize("group_by", [None, "week"])
+@pytest.mark.parametrize("group_by", [None, "day", "week"])
 def test_marketing_metrics_identical_to_in_memory(loaded, name, group_by):
     mem, pg, org, _ = loaded
     a = METRICS[name].callable(ORG, PERIOD, None, group_by, repo=mem).to_dict()
     b = METRICS[name].callable(org, PERIOD, None, group_by, repo=pg).to_dict()
     assert a == b
+
+
+@pytest.mark.parametrize("name", ["orders", "aov"])
+@pytest.mark.parametrize("group_by", [None, "day", "week", "channel", "city", "payment_method"])
+def test_orders_aov_identical(loaded, name, group_by):
+    mem, pg, org, _ = loaded
+    assert METRICS[name].callable(ORG, PERIOD, None, group_by, repo=mem).to_dict() ==         METRICS[name].callable(org, PERIOD, None, group_by, repo=pg).to_dict()
+
+
+@pytest.mark.parametrize("name", ["ad_impressions", "ad_clicks", "platform_reported_conversions"])
+@pytest.mark.parametrize("group_by", [None, "day", "week", "platform"])
+def test_ad_counts_identical(loaded, name, group_by):
+    mem, pg, org, _ = loaded
+    a = METRICS[name].callable(ORG, PERIOD, None, group_by, repo=mem).to_dict()
+    assert a == METRICS[name].callable(org, PERIOD, None, group_by, repo=pg).to_dict()
+    assert a["value"] is not None
+
+
+@pytest.mark.parametrize("group_by", [None, "day", "week", "channel"])
+def test_sessions_identical(loaded, group_by):
+    mem, pg, org, _ = loaded
+    a = METRICS["sessions"].callable(ORG, PERIOD, None, group_by, repo=mem).to_dict()
+    assert a == METRICS["sessions"].callable(org, PERIOD, None, group_by, repo=pg).to_dict()
+    assert a["value"] == 2700
+
+
+def test_exact_new_metric_values_from_postgres(loaded):
+    _, pg, org, _ = loaded
+    assert METRICS["orders"].callable(org, PERIOD, None, None, repo=pg).value == 2
+    assert METRICS["aov"].callable(org, PERIOD, None, None, repo=pg).value == 65000
+    assert METRICS["platform_reported_conversions"].callable(org, PERIOD, None, None, repo=pg).value == Decimal("18.5")
+    assert METRICS["ad_impressions"].callable(org, PERIOD, None, None, repo=pg).value == 12000
 
 
 def test_platform_roas_and_filters_identical(loaded):
@@ -173,6 +211,6 @@ def test_performance_50k_orders_quarter_by_channel(conn):
         dt = time.perf_counter() - t0
         print(f"\nPERF contribution_margin quarter x channel on 50k orders: {dt:.2f}s, rows={r.data_quality.row_count}")
         assert r.data_quality.row_count == 50000 and len(r.groups) == 4
-        assert dt < 20
+        assert dt < 10  # was ~15s wall before date-scoped fetches + vectorised aggregation (CPU 4.0s -> 1.4s)
     finally:
         cur.execute("delete from orgs where id = %s", (org,))

@@ -76,9 +76,9 @@ class _Conn:
         return _Cur(self.rows, self.log)
 
 
-def test_postgres_repository_maps_rows_and_normalises_legacy_tiers():
+def test_postgres_repository_maps_rows_in_select_order():
     at = datetime(2026, 9, 14, 10, tzinfo=timezone.utc)
-    row = ("uuid-1", "shopify", "e1", at, date(2026, 9, 14), "ck", "Pune", "tier1", "411001", "cod", "placed", 100, 10, 5, 0, 0)
+    row = ("uuid-1", "shopify", "e1", at, date(2026, 9, 14), "cod", "placed", 100, 10, 5, 0, 0, "ck", "Pune", "tier_1", "411001")
     conn = _Conn([row])
     (o,) = PostgresRepository(conn).orders("org", date(2026, 9, 1), date(2026, 9, 30))
     assert o.city_tier == "tier_1" and o.gross_revenue_paise == 100 and o.pincode == "411001"
