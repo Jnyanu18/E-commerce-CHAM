@@ -76,7 +76,7 @@ def test_persist_in_memory_curves_only_for_sufficient_runs():
     assert repo.model_runs[rid]["sufficient_data"] and len(repo.curves) == 2
     bad = persist_mmm_result(repo, "org1", run_mmm(make(30)))
     assert not repo.model_runs[bad]["sufficient_data"] and len(repo.curves) == 2
-    assert repo.model_runs[bad]["diagnostics"]["verdict"]["status"] == "INSUFFICIENT_DATA"
+    assert repo.model_runs[bad]["diagnostics"]["verdict"] == "INSUFFICIENT_DATA" and "30 weeks" in repo.model_runs[bad]["diagnostics"]["reason"]
     with pytest.raises(ValueError):
         repo.save_curves("org1", bad, [])  # even empty attach to insufficient run is refused? (no curves allowed)
     rec = optimise(_ok(), CUR)

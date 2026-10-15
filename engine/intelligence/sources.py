@@ -4,11 +4,8 @@ Intelligence never computes revenue / profit / CAC / ROAS / margin itself. Serie
   * `MetricLayerSource`: calls `metrics.METRICS[name].callable(...)` (the canonical implementations), or
   * `StaticSource`: an injected provider (tests, or ledger-level counts the metric layer does not expose yet).
 
-Metric-layer coverage gaps (documented in PROGRESS.md > Integration Needed): there is no `group_by=day`, so daily
-series are built by one metric call per day; order count, AOV, ad spend, sessions, impressions, clicks and
-conversions have no canonical metric yet and must be supplied through `extra` providers that read ledger tables
-(`orders`, `ad_spend_daily`, `traffic_daily`). Those providers return raw counts / paise only - ratios (AOV, CVR)
-are derived in `rootcause` from those counts exactly as the decomposition identity requires.
+Every series is ONE metric call with group_by=day|week (orders, aov, sessions, ad_spend, ad_impressions, ad_clicks,
+platform_reported_* now exist in the metric layer). `extra` remains only as a hook for inputs that are genuinely absent.
 """
 from __future__ import annotations
 
@@ -47,48 +44,59 @@ def _num(v: Any) -> float | None:
     return float(v) if isinstance(v, Decimal) else float(v)
 
 
+# Names used by intelligence -> canonical metric-layer names.
+ALIASES = {"impressions": "ad_impressions", "clicks": "ad_clicks", "conversions": "platform_reported_conversions",
+           "platform_revenue": "platform_reported_revenue"}
+# Metrics for which a day/week with no orders genuinely means zero. Everything else (ratios, ad and traffic data)
+# stays None when the metric layer has no row: a missing day is never silently zero.
+ZERO_WHEN_NO_ORDERS = {"net_revenue", "contribution_margin", "expected_rto_loss", "orders"}
+
+
 class MetricLayerSource:
-    """Builds series from the canonical metric layer. `extra` maps metric name -> callable(org_id, start, end, grain)
-    returning a Series for inputs that are not (yet) canonical metrics."""
+    """Builds series from the canonical metric layer with ONE call per series (group_by=day|week).
+    `extra` is a hook for genuinely absent inputs only (metric name -> callable(org_id, start, end, grain) -> Series).
+    Special keys: `ad_spend:<platform>` (ad_spend filtered to one platform) and `conversion` (platform_reported_conversions
+    / sessions, each from the metric layer; None where either is undefined)."""
 
     def __init__(self, repo: Any, extra: dict[str, Callable[..., Series]] | None = None):
         self.repo = repo
         self.extra = extra or {}
+
+    def _one(self, name: str, org_id: str, start: date, end: date, grain: str, filters: dict | None = None) -> Series:
+        from metrics import METRICS  # lazy: keeps this module importable without the metric layer
+
+        canon = ALIASES.get(name, name)
+        if canon not in METRICS:
+            raise KeyError(f"unknown metric {name!r}; not in metrics.METRICS and not an injected extra")
+        spec = METRICS[canon]
+        if grain not in spec.allowed_group_by:
+            raise ValueError(f"{canon} does not support group_by={grain}")
+        res = spec.callable(org_id, (start, end), filters, grain, repo=self.repo)
+        by = {g.key: _num(g.value) for g in res.groups}
+        if grain == "day":
+            dates = daterange(start, end)
+        else:
+            from metrics.periods import week_start
+            dates = [week_start(start) + timedelta(weeks=i) for i in range((week_start(end) - week_start(start)).days // 7 + 1)]
+        fill = 0.0 if canon in ZERO_WHEN_NO_ORDERS and res.data_quality.status != "insufficient" else None
+        vals = [by.get(d.isoformat(), fill) for d in dates]
+        return Series(name, res.unit, dates, vals, grain, [res.to_dict()], list(res.data_quality.issues))
 
     def series(self, metric: str, org_id: str, start: date, end: date, grain: str = "day") -> Series:
         if metric in self.extra:
             return self.extra[metric](org_id, start, end, grain)
         if grain not in ("day", "week"):
             raise ValueError(f"unsupported grain {grain!r}; use 'day' or 'week'")
-        from metrics import METRICS  # lazy: keeps this module importable without the metric layer
-
-        if metric not in METRICS:
-            raise KeyError(f"unknown metric {metric!r}; not in metrics.METRICS and not an injected extra")
-        spec = METRICS[metric]
-        calls: list[dict[str, Any]] = []
-        issues: list[str] = []
-        if grain == "week":
-            if "week" not in spec.allowed_group_by:
-                raise ValueError(f"{metric} does not support group_by=week")
-            res = spec.callable(org_id, (start, end), None, "week", repo=self.repo)
-            by_week = {g.key: _num(g.value) for g in res.groups}
-            weeks = sorted(by_week)
-            dates = [date.fromisoformat(w) for w in weeks]
-            vals = [by_week[w] for w in weeks]
-            calls.append(res.to_dict())
-            issues += res.data_quality.issues
-            return Series(metric, res.unit, dates, vals, "week", calls, issues)
-        dates = daterange(start, end)
-        vals: list[float | None] = []
-        unit = spec.unit
-        for d in dates:
-            res = spec.callable(org_id, (d, d), None, None, repo=self.repo)
-            unit = res.unit
-            vals.append(_num(res.value))
-            if res.data_quality.status != "ok":
-                issues += [f"{d}: {i}" for i in res.data_quality.issues]
-        calls.append({"metric": metric, "per_day_calls": len(dates), "period": {"start": start.isoformat(), "end": end.isoformat()}})
-        return Series(metric, unit, dates, vals, "day", calls, sorted(set(issues)))
+        if metric.startswith("ad_spend:"):
+            s = self._one("ad_spend", org_id, start, end, grain, {"platform": [metric.split(":", 1)[1]]})
+            s.metric = metric
+            return s
+        if metric == "conversion":
+            c = self._one("platform_reported_conversions", org_id, start, end, grain)
+            t = self._one("sessions", org_id, start, end, grain)
+            vals = [None if (a is None or b is None or b <= 0) else a / b for a, b in zip(c.values, t.values)]
+            return Series("conversion", "ratio", c.dates, vals, grain, c.calls + t.calls, sorted(set(c.issues + t.issues)))
+        return self._one(metric, org_id, start, end, grain)
 
 
 class StaticSource:
