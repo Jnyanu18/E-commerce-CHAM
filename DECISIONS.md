@@ -58,3 +58,6 @@
 - **Reason:** one canonical keyed HMAC so ledger keys join with connector keys; plain sha256 of phones is brute-forceable.
 - **Impact:** requires `CUSTOMER_HASH_KEY` when raw email/phone are hashed (tests get it from `engine/tests/conftest.py`). Changing the key changes every customer_key.
 - **Date:** 2026-10-15 **Agent:** ledger
+
+## Connectors: customer hashing resolved (2026-10-15, agent: connectors)
+- **Decision:** Shopify uses `app.identity.hash_email/hash_phone` (HMAC-SHA256, mandatory `CUSTOMER_HASH_KEY`); payload keys renamed `emailHash/phoneHash`; connector-local sha256/pepper code deleted. **Alternatives:** keep unsalted sha256 (rejected by main: brute-forceable phones; also my phone normalisation did not join the ledger's). **Reason:** security decision resolved by main; one canonical implementation. **Impact:** `CUSTOMER_HASH_KEY` must be set wherever a Shopify sync runs; key rotation changes every customer_key. **Date:** 2026-10-15 **Agent:** connectors

@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from connectors.errors import AuthError, ConfigError, PermanentError, RateLimitError
-from connectors.identity import hash_email, hash_phone
+from app.identity import hash_email, hash_phone
 from connectors.shopify import API_VERSION, ShopifyConnector, build_orders_query
 
 from .conftest import NOW, ORG, creds, make_http, make_integration
@@ -85,8 +85,8 @@ def test_backfill_pagination_pii_stripped_and_request_shape(store, sleeper):
     assert qs[0].startswith("created_at:>='2026-09-01T00:00:00Z' created_at:<'")
     stored = store.raw[(ORG, "shopify_order", "gid://shopify/Order/1")]
     assert "email" not in stored and "phone" not in stored
-    assert stored["customerIdentity"]["emailSha256"] == hash_email("synthetic.buyer@example.invalid")
-    assert stored["customerIdentity"]["phoneSha256"] == hash_phone("9876543210")
+    assert stored["customerIdentity"]["emailHash"] == hash_email("synthetic.buyer@example.invalid")
+    assert stored["customerIdentity"]["phoneHash"] == hash_phone("9876543210")
     assert stored["totalRefundedSet"]["shopMoney"]["amount"] == "0.00"  # verbatim otherwise
     assert "SYNTHETIC_TOKEN" not in json.dumps(stored)
     assert store.integrations["int-shopify"].backfill_done
@@ -206,7 +206,7 @@ def test_guest_order_without_contact_hashes_none(store, sleeper):
     o = order(1, email=None, phone=None, customer=None)
     build(store, lambda r: httpx.Response(200, json=page([o])), sleeper).run_sync("incremental")
     s = store.raw[(ORG, "shopify_order", "gid://shopify/Order/1")]
-    assert s["customerIdentity"]["emailSha256"] is None and s["customerIdentity"]["phoneSha256"] is None
+    assert s["customerIdentity"] == {"emailHash": None, "phoneHash": None}
 
 
 def test_refund_update_changes_payload_and_requeues(store, sleeper):

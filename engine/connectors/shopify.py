@@ -21,7 +21,7 @@ from .credentials import Credentials
 from .errors import (AuthError, ConfigError, PermanentError, RateLimitError, ResponseShapeError,
                      TransientError)
 from .httpclient import default_classify, parse_retry_after
-from .identity import hash_email, hash_phone
+from app.identity import hash_email, hash_phone
 from .store import RawRecord
 
 API_VERSION = "2026-10"
@@ -73,12 +73,13 @@ def _iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def sanitize_order(order: dict, pepper: bytes | None = None) -> dict:
-    """Drop raw email/phone, add hashed identity. The rest of the node is stored verbatim."""
+def sanitize_order(order: dict, hash_key: str | bytes | None = None) -> dict:
+    """Drop raw email/phone, add HMAC identity from app.identity (the single canonical implementation;
+    needs env CUSTOMER_HASH_KEY or an explicit key). The rest of the node is stored verbatim.
+    Falls back to shippingAddress-free data only: no phone from the address is requested."""
     out = dict(order)
     email, phone = out.pop("email", None), out.pop("phone", None)
-    out["customerIdentity"] = {"emailSha256": hash_email(email, pepper), "phoneSha256": hash_phone(phone, pepper),
-                               "hmac": bool(pepper)}
+    out["customerIdentity"] = {"emailHash": hash_email(email, hash_key), "phoneHash": hash_phone(phone, hash_key)}
     return out
 
 
@@ -91,13 +92,13 @@ class ShopifyConnector(Connector):
     def __init__(self, *a, api_version: str = API_VERSION, page_size: int = 10, line_items: int = 15,
                  refunds: int = 3, refund_line_items: int = 10, transactions: int = 5,
                  backfill_start: datetime | None = None, window_days: int = 30,
-                 identity_pepper: bytes | None = None, **kw):
+                 hash_key: str | bytes | None = None, **kw):
         super().__init__(*a, **kw)
         shop = self.integration.account_ref.strip().lower()
         if not SHOP_RE.match(shop):
             raise ConfigError("account_ref must be a '<shop>.myshopify.com' domain", provider=self.provider)
         self.url = f"https://{shop}/admin/api/{api_version}/graphql.json"
-        self.page_size, self.window_days, self.pepper = page_size, window_days, identity_pepper
+        self.page_size, self.window_days, self.hash_key = page_size, window_days, hash_key
         self.backfill_start = backfill_start
         self.query = build_orders_query(line_items, refunds, refund_line_items, transactions)
         self._available: float | None = None
@@ -198,7 +199,7 @@ class ShopifyConnector(Connector):
             for r in n.get("refunds") or []:
                 if ((r.get("refundLineItems") or {}).get("pageInfo") or {}).get("hasNextPage"):
                     self.warnings.append(f"{n['id']}: refundLineItems truncated at page size")
-            recs.append(RawRecord(self.integration.org_id, self.source, n["id"], sanitize_order(n, self.pepper)))
+            recs.append(RawRecord(self.integration.org_id, self.source, n["id"], sanitize_order(n, self.hash_key)))
         return recs
 
     def fetch(self, mode: str, since: datetime | None) -> Iterator[list[RawRecord]]:
