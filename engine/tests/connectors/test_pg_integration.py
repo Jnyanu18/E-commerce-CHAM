@@ -165,8 +165,6 @@ def test_csv_mapping_save_load_and_import_idempotent(conn):
     assert "delimiter" in s.get_csv_mapping(org, "syntheticmkt", "orders")
 
 
-@pytest.mark.xfail(reason="ledger Shopify adapter expects REST-shaped payload; GraphQL mismatches listed in PROGRESS.md "
-                          "Integration Needed. Passes once the ledger adapter reads the GraphQL shape.", strict=False)
 def test_ledger_run_transform_consumes_shopify_raw(conn, sleeper):
     """Shape-compat check (import-only use of the ledger). See PROGRESS.md > Integration Needed."""
     ledger = pytest.importorskip("ledger.pipeline")
