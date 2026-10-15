@@ -118,3 +118,17 @@ JWT -> `auth.uid()` via PostgREST, `service_role` as shipped by Supabase (emulat
 - `__MISSING_SKU__` items are treated as missing COGS (flagged, never zero silently).
 - Perf (50k orders, one quarter, group_by channel): ~15s on this machine (about 4.5s SQL fetch of ids/items/fees, rest Python row assembly). Acceptable for MVP; if it matters, push date-range-scoped fetches for child tables and vectorise in the metric layer. No new index needed (orders (org_id, channel, ordered_date_ist), fees/items by order_id already exist).
 - Legacy tier1..3 normalisation in the repository is kept (harmless).
+
+## Frontend (agent/frontend, 2026-10-15)
+### Done
+- `web/` Next.js 16 (App Router, TS), Tailwind 4, shadcn-style primitives, Recharts, Supabase client. Pages: Overview, Profitability (channel/SKU/category/city/city tier/COD vs prepaid), Marketing (platform figures labelled "Platform-reported, not causal"), Anomalies, AI brief (incl. INSUFFICIENT_DATA state), COGS editor, Integrations, Login.
+- `web/lib/api/` typed client + runtime MetricResult validation; `web/lib/mocks/` separate mock layer via `NEXT_PUBLIC_USE_MOCKS` (default true); mocks labelled "Sample data" in banner and header.
+- Verified: vitest 33 passed, tsc clean, eslint clean, `npm run build` ok, all 8 routes load in headless browser with 0 console errors (mock mode).
+### In Progress / Unverified
+- Live mode (real FastAPI + Supabase) untested: no backend, no Supabase credentials. COGS upsert and integrations select unverified against a real RLS database.
+### Integration Needed (contract change requests)
+1. Metrics `ad_spend` and `platform_reported_revenue` (not in the canonical list); group keys = ad platform (`meta`, `google_ads`).
+2. `group_by=city_tier` (enum `metro|tier_1|tier_2|tier_3|unknown`) alongside `city`.
+3. New endpoints: `GET /anomalies?org_id` (id, detected_at, severity low|medium|high|critical, metric, unit, observed, expected, summary, drivers[{dimension,key,detail,share 0..1}], evidence[{call_id,description}]) and `GET /briefs/latest?org_id` (CONTRACTS s6/s7 shape or `{status:"INSUFFICIENT_DATA",reason,fallback}`); shapes in `web/lib/api/types.ts`.
+4. `filters` query param assumed JSON-encoded object `{"channel":["shopify"]}`; confirm.
+5. API CORS must allow the web origin; WoW % is computed in `web/lib/presentation.ts` from two API values (ask for an API field if preferred).
