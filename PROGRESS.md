@@ -1,5 +1,24 @@
 # Progress
 
+## SYSTEM STATUS (lead, 2026-10-15)  - read this first; the per-agent sections below are history
+**Verified on `main`:** engine 509 passed / 2 skipped (with Postgres 18.1), 383 passed / 128 skipped (no DB), SQL suite ALL PASSED, frontend 53 vitest + tsc + eslint clean (agent also reports `next build` + headless render in mock mode). End-to-end test (seed -> raw -> worker -> ledger -> metrics -> HTTP API, JWT auth, two tenants) matches independently computed ground truth to the paisa for net revenue (total + by channel), contribution margin, ad spend, platform revenue, MER and contribution after marketing. Frontend live-smoke passes against a real running engine (7 metrics).
+
+| Area | Implemented | Tested | Mocked / assumed | Unverified / blocked |
+|---|---|---|---|---|
+| Database (supabase/) | tenancy, ledger, settlements, shipments, queue + reaper, RLS, privilege hardening, city tiers | SQL suite on Postgres 18 | emulated Supabase roles/auth | real Supabase (JWT->auth.uid via PostgREST, service_role, PG version) |
+| Connectors | framework, Shopify, Shiprocket, Meta, Google Ads, CSV engine | mocked-HTTP + real-Postgres store | ALL provider responses synthetic | NO live calls; Shiprocket list/pagination/login fields unconfirmed; no marketplace CSV samples; OAuth flows not built |
+| Ledger | Shopify GraphQL, Shiprocket, marketplace (neutral schema), ad spend, settlements, reconciliation | unit + Postgres + e2e | marketplace mapping & Shiprocket fields are ASSUMED; GST inclusive unless `taxesIncluded` | traffic_daily not populated (no sessions connector) |
+| Metrics | 16 registry metrics incl. day/week grain | hand-calculated + Postgres parity | - | 50k-order quarter ~4.7s best case (target 3s) |
+| API (main) | /metrics, /data-quality, /anomalies, /briefs/latest, JWT+membership, CORS | unit + e2e + live smoke | - | real Supabase tokens |
+| Worker (main) | transform, reconcile, sync, weekly_brief, detect_anomalies, mmm_run, reaper, scheduler (daily sync; Monday 06/07/08 IST pipeline) | Postgres tests | - | scheduler loop never run as a process |
+| Intelligence | STL+robust-z anomalies, LMDI root cause, MMM gate + PyMC fit, optimiser, geo-holdout + DiD | synthetic planted-effect tests; PyMC recovery passed once (7.5 min, no C++ compiler) | sampler cost reduced for handler path | no real brand has >=52 weeks; thresholds calibrated on synthetic data only |
+| AI | 8 tools (no SQL), brief generation, traceability validator, audit trail | scripted mock provider incl. hallucination tests | Claude is MOCKED | **live Claude never called** (no API key); request shape unverified; SMTP delivery never sent |
+| Frontend | dashboard, profitability, marketing, anomalies, markdown brief with source panel, COGS editor, integrations, data quality | vitest, tsc, eslint, build, headless render (mock mode) | default mode = sample data | live mode only via API smoke script; COGS write path vs real RLS unverified |
+
+**Blocked on external:** Shopify app / Meta App Review + Business Verification / Google Ads developer token / Shiprocket API user; marketplace sample CSVs; ANTHROPIC_API_KEY; SMTP account; real Supabase project; a pilot brand's books for the 2% reconciliation target.
+**Known risks:** metric queries scale roughly linearly with orders (rollup table needed for large brands); anomaly job ~2 min per run on a small brand; scheduler/worker never run as a long-lived process; `CUSTOMER_HASH_KEY` rotation re-keys all customers; Shiprocket and marketplace shapes may force ledger changes on first real data.
+**Not done (out of MVP or not started):** OAuth connect flows, CSV upload endpoint + UI, org onboarding UI, webhook receivers, `traffic_daily` source, per-run observability, deployment config.
+
 ## Done
 ### Main / workspace
 - Seven Git worktrees and specialist branches created (all at the same commit, clean)
