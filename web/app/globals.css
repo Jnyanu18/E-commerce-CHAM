@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f7f7f5;
+  --foreground: #1a1a1a;
+  --card: #ffffff;
+  --muted: #efeeea;
+  --muted-foreground: #5c5c57;
+  --border: #dcdad3;
+  --primary: #1f4d3a;
+  --primary-foreground: #ffffff;
+  --accent: #b45309;
+  --positive: #166534;
+  --negative: #b91c1c;
+  --warning-bg: #fef3c7;
+  --warning-fg: #78350f;
+  --info-bg: #e0ecf7;
+  --info-fg: #1e3a5f;
+  --ring: #1f4d3a;
+  --chart-1: #1f6f55;
+  --chart-2: #c2410c;
+  --chart-neg: #b91c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #121412;
+    --foreground: #ecebe6;
+    --card: #1b1e1b;
+    --muted: #262a26;
+    --muted-foreground: #a3a39b;
+    --border: #353a35;
+    --primary: #5fbf9a;
+    --primary-foreground: #0d1a14;
+    --accent: #f59e0b;
+    --positive: #4ade80;
+    --negative: #f87171;
+    --warning-bg: #3d2f0b;
+    --warning-fg: #fcd34d;
+    --info-bg: #14283d;
+    --info-fg: #9cc4ee;
+    --ring: #5fbf9a;
+    --chart-1: #5fbf9a;
+    --chart-2: #fb923c;
+    --chart-neg: #f87171;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-warning-bg: var(--warning-bg);
+  --color-warning-fg: var(--warning-fg);
+  --color-info-bg: var(--info-bg);
+  --color-info-fg: var(--info-fg);
+  --color-ring: var(--ring);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
