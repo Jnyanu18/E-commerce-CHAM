@@ -67,3 +67,11 @@ def get_metric(metric: str, org_id: str, start: date, end: date, group_by: str |
     except MetricError as e:
         raise HTTPException(400, str(e))
     return JSONResponse(result.to_dict())
+
+
+@router.get("/data-quality")
+def data_quality(org_id: str, authorization: str | None = Header(None), conn=Depends(get_conn)) -> JSONResponse:
+    """System-level data-quality checks for the org (duplicates, missing SKUs/COGS, stale integrations, ...)."""
+    from .dataquality import run_checks
+    authorise(org_id, authorization, conn)
+    return JSONResponse(run_checks(conn, org_id))
