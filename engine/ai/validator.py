@@ -42,9 +42,9 @@ LOOKS_LIKE_CITE_RE = re.compile(r"\[\s*(?:call[_-]?id|call[_-]?\d+|c\d+[^\]]*)\s
 _MONTH = r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
 _EXEMPT = [
     re.compile(r"\b\d{4}-\d{2}-\d{2}\b"),
-    re.compile(rf"\b{_MONTH}\.?\s+\d{{4}}\b", re.I),
     re.compile(rf"\b\d{{1,2}}(?:st|nd|rd|th)?(?:\s?[-–]\s?\d{{1,2}}(?:st|nd|rd|th)?)?\s+{_MONTH}\b\.?(?:,?\s+\d{{4}})?", re.I),
     re.compile(rf"\b{_MONTH}\.?\s+\d{{1,2}}(?:st|nd|rd|th)?(?:\s?[-–]\s?\d{{1,2}}(?:st|nd|rd|th)?)?\b(?:,?\s+\d{{4}})?", re.I),
+    re.compile(rf"\b{_MONTH}\.?\s+\d{{4}}\b", re.I),
     re.compile(r"\bFY\s?\d{2,4}(?:\s?[-–/]\s?\d{2,4})?", re.I),
     re.compile(r"\b(?:calendar\s+)?year\s+(?:19|20)\d{2}\b", re.I),
     re.compile(r"\b\d{1,2}:\d{2}\b"),
