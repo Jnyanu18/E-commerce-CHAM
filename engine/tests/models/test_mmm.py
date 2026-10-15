@@ -67,7 +67,7 @@ def test_exclude_failing_channels_option():
 def _planted_draws(n=400, seed=0, spread=0.05):
     rng = np.random.default_rng(seed)
     ch = ["meta", "google"]
-    col = lambda key: np.column_stack([TRUE[c][key] * (1 + spread * rng.standard_normal(n)) for c in ch])  # noqa: E731
+    col = lambda key: np.column_stack([TRUE[c][key] * np.abs(1 + spread * rng.standard_normal(n)) + 1e-3 for c in ch])  # noqa: E731
     return PosteriorDraws(ch, col("beta"), np.clip(col("alpha"), 0.01, 0.99), col("k"), col("s"),
                           np.array([TRUE[c]["xmax"] for c in ch]), BASE, 8,
                           diagnostics={"r_hat_max": 1.01, "ess_bulk_min": 900.0, "divergence_frac": 0.0, "ppc_coverage_80": 0.8})
