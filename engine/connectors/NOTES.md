@@ -52,3 +52,7 @@ credentials, stores or ad accounts were available. Tests use synthetic recorded-
 ## Re-verification attempt (2026-10-15)
 - Shiprocket: retried search and fetch of https://apidocs.shiprocket.in/ (page text is only the title), the helpsheet and third-party indexes. **No further official confirmation** of the shipments list path, `page` parameter, `meta.pagination` shape, or login response key `token`; those stay flagged secondary-source/unverified. Only previously listed items are confirmed. Next step needs a real API-user call (or the Postman collection from the Shiprocket panel).
 - Customer hashing is now `app.identity` (HMAC, `CUSTOMER_HASH_KEY`); payload keys `customerIdentity{emailHash, phoneHash}`.
+
+## taxesIncluded (verified 2026-10-15)
+- https://shopify.dev/docs/api/admin-graphql/latest/objects/Order (version 2026-10): `Order.taxesIncluded: Boolean!` - "Whether taxes are included in the subtotal price of the order" (true: subtotal and line item prices include tax; false: taxes shown separately). Now requested and stored verbatim in the payload. Related, not used: `taxExempt`, `estimatedTaxes`, `dutiesIncluded`.
+- `CUSTOMER_HASH_KEY` (or explicit `hash_key`, >=16 chars) is checked at `ShopifyConnector` construction; failure raises `ConfigError`.
